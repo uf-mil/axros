@@ -133,11 +133,10 @@ class TransformListener(object):
 
             l = self._tfs.setdefault(child_frame_id, [])
 
-            if l and transform.header.stamp < l[-1][0]:
-                print child_frame_id, "frame's time decreased!"
-                del l[:]
-
-            l.append((transform.header.stamp, frame_id, Transform.from_Transform_message(transform.transform)))
+            if not(l and transform.header.stamp < l[-1][0]):
+                #print child_frame_id, "frame's time decreased!"
+                #del l[:]
+                l.append((transform.header.stamp, frame_id, Transform.from_Transform_message(transform.transform)))
 
             if l[0][0] + self._history_length * 2 <= transform.header.stamp:
                 pos = 0
