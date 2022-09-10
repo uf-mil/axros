@@ -117,11 +117,9 @@ async def wrap_time_notice(
         timeout = duration.to_sec()
     else:
         timeout = float(duration)
-    
-    import contextlib
-    with contextlib.suppress(asyncio.TimeoutError):
-        return await asyncio.gather(
-            wrap_timeout(fut, duration, cancel = False),
-            _print_message_helper(timeout, description)
-        )
+
+    task = asyncio.create_task(_print_message_helper(timeout, description))
+    await fut
+    task.cancel()
+
     print(f"{description} succeeded!")
