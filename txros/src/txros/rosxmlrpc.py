@@ -190,6 +190,7 @@ class XMLRPCException(Exception):
         if exception.__class__.__name__ == "ClientConnectorError" and method_name == "requestTopic":
             help_message = "It appears the node may not be able to find a node publishing the topic it is attempting to listen to. This likely means that the node publishing to the topic has died. Please check the publisher to the topic for issues and restart ROS."
 
+        print(self.request_body)
         super().__init__(f"An error occurred in the XMLRPC communication. The '{self.node_handle._name}' node attempted to call '{method_name}' resulting in an error. For help resolving this exception, please see the txros documentation." + (f"\n\n{help_message}" if help_message else ""))
 
 

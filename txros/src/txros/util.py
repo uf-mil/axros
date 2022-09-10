@@ -93,6 +93,11 @@ async def wrap_timeout(
     return await asyncio.wait_for(asyncio.shield(fut), timeout)
 
 
+async def _print_message_helper(duration: float, description: str):
+    await asyncio.sleep(duration)
+    print(f"{description} is taking a while...")
+
+
 async def wrap_time_notice(
     fut: Awaitable[T], duration: float | genpy.Duration, description: str
 ) -> T:
@@ -108,10 +113,15 @@ async def wrap_time_notice(
     Returns:
         Any: The result from the awaitable.
     """
-    try:
-        return await wrap_timeout(fut, duration, cancel=False)
-    except asyncio.TimeoutError:
-        print(f"{description} is taking a while...")
-        res = await fut
-        print(f"... {description} succeeded.")
-        return res
+    if isinstance(duration, genpy.Duration):
+        timeout = duration.to_sec()
+    else:
+        timeout = float(duration)
+    
+    import contextlib
+    with contextlib.suppress(asyncio.TimeoutError):
+        return await asyncio.gather(
+            wrap_timeout(fut, duration, cancel = False),
+            _print_message_helper(timeout, description)
+        )
+    print(f"{description} succeeded!")
