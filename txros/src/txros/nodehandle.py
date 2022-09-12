@@ -68,16 +68,21 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
         return 1, "success", self.node_handle.master_uri
 
     async def rpc_shutdown(self, _, msg: str = ""):
-        print("Shutdown requested. Reason:", repr(msg))
-        # XXX should somehow tell/wait for user code to cleanly exit here, e.g.
-        # by .cancel()ing main coroutine
-        await self.node_handle.shutdown()
+        print(f"Shutdown of {self.node_handle._name} node requested. Reason: {msg}")
+        try:
+            await util.wrap_timeout(self.node_handle.shutdown(shutdown_servers = False), 3)
+        except asyncio.TimeoutError:
+            pass
 
         async def _kill_soon():
-            await util.wall_sleep(0)
+            await self.node_handle.shutdown_servers()
+            print(f"Shut down of {self.node_handle._name} node complete.")
             sys.exit(0)
 
-        await _kill_soon()
+        self.my_task = asyncio.create_task(_kill_soon())
+        # Get exception so the loop doesn't print it out later when the program
+        # has completed.
+        self.my_task.add_done_callback(lambda t: t.exception())
         return (1, "success", False)
 
     def rpc_getPid(self, _) -> tuple[int, str, int]:
@@ -366,7 +371,7 @@ class NodeHandle:
         self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host="127.0.1.1", port=0)
         await self._xmlrpc_site.start()
 
-        self.shutdown_callbacks.add(self._xmlrpc_runner.cleanup)
+        # self.shutdown_callbacks.add(self._xmlrpc_runner.cleanup)
         self.xmlrpc_server_uri = "http://%s:%i/" % (
             self._addr,
             self._xmlrpc_site._server.sockets[0].getsockname()[1],
@@ -381,18 +386,18 @@ class NodeHandle:
         tcpros_server_port = self._tcpros_server.sockets[0].getsockname()[1]
         self._tcpros_server_addr = self._addr, tcpros_server_port
         self._tcpros_server_uri = f"rosrpc://{self._addr}:{tcpros_server_port}"
-        print(f"XMLRPC URI: {self.xmlrpc_server_uri}")
 
         while True:
             try:
                 other_node_uri = await self.master_proxy.lookupNode(self._name)
-            except rosxmlrpc.ROSMasterException:
+            except rosxmlrpc.ROSMasterError:
                 break  # assume that error means unknown node
             except Exception as _:
                 traceback.print_exc()
                 await util.wall_sleep(1)  # pause so we don't retry immediately
             else:
                 other_node_proxy = rosxmlrpc.AsyncServerProxy(other_node_uri, self)
+                other_node_proxy = rosxmlrpc.ROSMasterProxy(other_node_proxy, self._name)
                 try:
                     await util.wrap_timeout(
                         other_node_proxy.shutdown("new node registered with same name"),
@@ -406,7 +411,7 @@ class NodeHandle:
 
         try:
             self._use_sim_time = await self.get_param("/use_sim_time")
-        except rosxmlrpc.ROSMasterException:  # assume that error means not found
+        except rosxmlrpc.ROSMasterError:  # assume that error means not found
             self._use_sim_time = False
 
         if self._use_sim_time:
@@ -468,37 +473,50 @@ class NodeHandle:
             )
             warnings.simplefilter("default", ResourceWarning)
 
-    async def shutdown(self) -> None:
+    async def shutdown(self, *, shutdown_servers: bool = True) -> None:
         """
         Shuts down all active connections. This should always be called before
         the loop is closed, or else multiple instances of :class:`ResourceWarning`
         will be emitted.
         """
-        if not hasattr(self, "_shutdown_thread"):
-            self._shutdown_thread = self._real_shutdown()
-        return await self._shutdown_thread
+        if not self._is_running:
+            warnings.simplefilter("always", ResourceWarning)
+            warnings.warn(
+                f"The {self._name} node is not currently running. It may have been shutdown previously or never started.",
+                ResourceWarning
+            )
+            warnings.simplefilter("default", ResourceWarning)
+            return
 
-    async def _real_shutdown(self):
+        if self._is_running:
+            return await self._real_shutdown(shutdown_servers)
+
+    async def shutdown_servers(self):
+        if not self._aiohttp_session.closed:
+            self._tcpros_server.close()
+            await self._tcpros_server.wait_closed()
+            await self._xmlrpc_runner.cleanup()
+            await self._aiohttp_session.close()
+
+    async def _real_shutdown(self, shutdown_servers: bool):
         self._is_running = False
 
+        count, total_coros = 1, len(self.shutdown_callbacks)
         while self.shutdown_callbacks:
             self.shutdown_callbacks, old = set(), self.shutdown_callbacks
             old_coros = [func() for func in old]
             for coro in old_coros:
                 try:
                     await coro
+                    count += 1
                 except:
                     traceback.print_exc()
 
         # Close the open aiohttp connection used for XMLRPC
         # Clean this up LAST - other services/publishers/subscribers may still
         # be using this session
-        if not self._aiohttp_session.closed:
-            # print("it's not closed lol")
-            self._tcpros_server.close()
-            await self._tcpros_server.wait_closed()
-            await self._xmlrpc_runner.cleanup()
-            await self._aiohttp_session.close()
+        if shutdown_servers:
+            await self.shutdown_servers()
 
     def get_name(self) -> str:
         """

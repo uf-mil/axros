@@ -14,11 +14,13 @@ from .publisher import Publisher
 from .rosxmlrpc import (
     AsyncioTransport,
     AsyncServerProxy,
-    ROSMasterException,
+    ROSMasterError,
+    ROSMasterFailure,
     ROSMasterProxy,
     XMLRPCException,
     XMLRPCLegalType,
 )
+from .exceptions import TxrosException
 from .service import Service
 from .serviceclient import ServiceClient, ServiceError
 from .subscriber import Subscriber

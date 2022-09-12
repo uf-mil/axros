@@ -314,7 +314,15 @@ class SimpleActionServer:
         return self._is_running
 
     def __del__(self):
-        if self._is_running:
+        # Shutdown can also be achieved by just shutting down each pub/sub
+        subs_pubs_running = (
+            self._status_pub.is_running() or
+            self._result_pub.is_running() or
+            self._feedback_pub.is_running() or
+            self._goal_sub.is_running() or
+            self._cancel_sub.is_running()
+        )
+        if subs_pubs_running and self._is_running:
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
                 f"The '{self._name}' action server was never shutdown(). This may cause issues with this instance of ROS - please fix the errors and completely restart ROS.",
