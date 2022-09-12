@@ -318,7 +318,7 @@ class NodeHandle:
 
         self._xmlrpc_runner = web.AppRunner(app)
         await self._xmlrpc_runner.setup()
-        self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host="127.0.1.1", port=0)
+        self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host=self._addr, port=0)
         await self._xmlrpc_site.start()
 
         # self.shutdown_callbacks.add(self._xmlrpc_runner.cleanup)
@@ -331,6 +331,7 @@ class NodeHandle:
         self._tcpros_server = await asyncio.start_server(
             functools.partial(tcpros.callback, self.tcpros_handlers),
             family=socket.AF_INET,
+            host=self._addr,
             port=0,
         )  # Port 0 lets the host assign the port for us
         tcpros_server_port = self._tcpros_server.sockets[0].getsockname()[1]
