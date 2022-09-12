@@ -43,9 +43,9 @@ class Service(Generic[Request, Reply]):
                 The callback method used by the class will receive the request
                 class associated with the service, and is expected to return the
                 response class associated with this class.
-            callback (Callable[[genpy.Message], defer.Deferred]): The callback
-                to process all incoming service requests. The callback should return
-                the service response class through a Deferred object.
+            callback (Callable[[genpy.Message], Awaitable[genpy.Message]]): An asynchronous callback
+                to process all incoming service requests. The returned message type
+                should be the reply type associated with the service.
         """
         self._node_handle = node_handle
         self._name = self._node_handle.resolve_name(name)

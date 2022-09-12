@@ -131,56 +131,6 @@ class NodeHandle:
         you are initiailizing. If the other node is shutdown, it will be shutdown
         safely.
 
-    The node handle can be used for general purposes, such as parameters and sleeping:
-
-    .. code-block:: python
-
-        >>> import os
-        >>> import txros
-        >>> nh = await NodeHandle("/test", "special_node", "localhost", os.environ["ROS_MASTER_URI"], {})
-        >>> nh.get_name()
-        '/test/special_node'
-        >>> await nh.set_param("special_param", True)
-        >>> await nh.get_param("special_param")
-        True
-        >>> await nh.delete_param("special_param")
-        >>> try:
-        ...     await nh.get_param("special_param")
-        ... except txros.ROSMasterException:
-        ...     print("This parameter does not exist!")
-        This parameter does not exist!
-        >>> await nh.sleep(2) # Sleeps for 2 seconds
-
-    The node handle can also be used for publishing and subscribing to topics. Note
-    that all publishers and subscribers must be setup.
-
-    .. code-block:: python
-
-        >>> import os
-        >>> import txros
-        >>> nh = await txros.NodeHandle("/test", "special_node", "localhost", os.environ["ROS_MASTER_URI"], {})
-        >>> from std_msgs.msg import Int32
-        >>> pub = nh.advertise("running_time", Int32)
-        >>> await pub.setup()
-        >>> async def publish():
-        ...     try:
-        ...         count = 0
-        ...         while True:
-        ...             pub.publish(Int32(count))
-        ...             count += 1
-        ...             await asyncio.sleep(1)
-        ...     except asyncio.CancelledError as _:
-        ...         # When task gets cancelled, stop publishing
-        ...         pass
-        >>> task = asyncio.create_task(publish()) # Start publishing!
-        >>> sub = nh.subscribe("running_time", Int32)
-        >>> await sub.setup()
-        >>> while True:
-        ...     print(await sub.get_next_message())
-        4
-        5
-        6
-
     .. container:: operations
 
         .. describe:: async with x:
@@ -544,7 +494,7 @@ class NodeHandle:
         Sleeps for a specified amount of time.
 
         Args:
-            time (Union[float, int, genpy.Time]): The amount of time to sleep until.
+            future_time (Union[float, int, genpy.Time]): The amount of time to sleep until.
                 If a float or integer is used, then the generated time is constructed
                 through the ``from_sec`` method of ``genpy.Time``.
 
@@ -628,7 +578,7 @@ class NodeHandle:
         Returns:
             bool: Whether the node handle is not running. This is ``True`` by default,
             calling :meth:`~.setup` on the node will make this ``False``. Will always
-            be opposite of :meth`~.is_running`.
+            be opposite of :meth:`~.is_running`.
         """
         return not self._is_running
 
@@ -642,6 +592,16 @@ class NodeHandle:
         Creates a service using this node handle. The arguments and keyword
         arguments passed to this method are passed into the constructor of the service;
         check there for information on what arguments can be passed in.
+
+        Args:
+            name (str): The name to use for the service.
+            service_message (type[genpy.Message]): A ROS service class to use with the service.
+                The callback method used by the class will receive the request
+                class associated with the service, and is expected to return the
+                response class associated with this class.
+            callback (Callable[[genpy.Message], Awaitable[genpy.Message]]): An asynchronous callback
+                to process all incoming service requests. The returned message type
+                should be the reply type associated with the service.
 
         Raises:
             RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
