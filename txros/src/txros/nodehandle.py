@@ -224,7 +224,12 @@ class NodeHandle:
 
     @classmethod
     def from_argv_with_remaining(
-        cls, default_name: str, argv: list[str] | None = None, anonymous: bool = False
+        cls,
+        default_name: str,
+        argv: list[str] | None = None,
+        anonymous: bool = False,
+        *,
+        always_default_name=False,
     ) -> tuple[NodeHandle, list[str]]:
         """
         Constructs a handle from an argument vector. Attempts to find any missing
@@ -236,6 +241,9 @@ class NodeHandle:
             argv (list[str] | None): The argument vector to use.
             anonymous (bool): Whether to make the node anonymous. Appends a random
                 number to the end of the node name.
+            always_default_name (bool): Whether to always use the default name of
+                the node, avoiding remappings. Commonly used in testing or complex
+                environments where stronger node control is desired. Defaults to ``True``.
         """
         if not argv:
             argv = sys.argv
@@ -253,7 +261,7 @@ class NodeHandle:
         name = default_name
         if anonymous:
             name = name + "_" + "{:016x}".format(random.randrange(2**64))
-        if "__name" in remappings:
+        if "__name" in remappings and not always_default_name:
             name = remappings["__name"]
 
         addr = socket.gethostname()  # could be a bit smarter
@@ -559,8 +567,11 @@ class NodeHandle:
 
         Raises:
             TypeError: The argument passed to ``duration`` was not an allowed type.
+            ValueError: The request sleep length was non-negative.
         """
         if isinstance(duration, (float, int)):
+            if duration < 0:
+                raise ValueError("The sleep length must be non-negative.")
             duration = genpy.Duration.from_sec(duration)
         elif not isinstance(duration, genpy.Duration):
             raise TypeError("expected float or genpy.Duration")
