@@ -77,7 +77,8 @@ class GoalManager:
         del status
         self.forget()
 
-        self._result_fut.set_result(result)
+        if not self._result_fut.done():
+            self._result_fut.set_result(result)
 
     def _feedback_callback(self, status, feedback: types.ActionFeedback):
         del status
