@@ -209,7 +209,13 @@ class Publisher(Generic[M]):
 
         Args:
             msg (genpy.Message): The ROS message to send to all connected clients.
+
+        Raises:
+            TypeError: The message type was invalid.
         """
+        if not isinstance(msg, self.message_type):
+            raise TypeError(f"Cannot publish message of type {msg.__class__} on {self._name} publisher, which only accepts {self.message_type}.")
+
         x = BytesIO()
         self.message_type.serialize(msg, x)
         data = x.getvalue()
