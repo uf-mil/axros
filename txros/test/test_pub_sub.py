@@ -29,6 +29,8 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
         our_msg = Clock(rospy.Time.from_sec(time.time()))
 
         self.pub.publish(our_msg)
+        self.assertIsNone(self.sub.get_last_message())
+        self.assertIsNone(self.sub.get_last_message_time())
         next_msg = await self.sub.get_next_message()
         self.assertEqual(next_msg, our_msg)
         self.assertEqual(self.sub.get_last_message(), our_msg)

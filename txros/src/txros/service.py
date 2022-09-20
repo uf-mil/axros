@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 import asyncio
 import traceback
 from io import BytesIO
@@ -18,7 +19,11 @@ Reply = TypeVar('Reply', bound = types.Message)
 class Service(Generic[Request, Reply]):
     """
     A service in the txROS suite. Handles incoming requests through a user-supplied
-    callback function, which is expected to return a response message.
+    asynchronous callback function, which is expected to return a response message.
+
+    This class completes the server aspect of the server-client relationship in
+    ROS. The client class is the :class:`txros.ServiceClient` class - this class
+    can be used to call services.
 
     .. container:: operations
 
@@ -43,9 +48,9 @@ class Service(Generic[Request, Reply]):
                 The callback method used by the class will receive the request
                 class associated with the service, and is expected to return the
                 response class associated with this class.
-            callback (Callable[[genpy.Message], defer.Deferred]): The callback
+            callback (Callable[[genpy.Message], Awaitable[genpy.Message]]): The callback
                 to process all incoming service requests. The callback should return
-                the service response class through a Deferred object.
+                the service response class through an awaitable object.
         """
         self._node_handle = node_handle
         self._name = self._node_handle.resolve_name(name)
@@ -53,6 +58,7 @@ class Service(Generic[Request, Reply]):
         self._callback = callback
 
         self._node_handle.shutdown_callbacks.add(self.shutdown)
+        self._is_running = False
 
     async def setup(self) -> None:
         """
@@ -69,6 +75,14 @@ class Service(Generic[Request, Reply]):
             self._node_handle._tcpros_server_uri,
             self._node_handle.xmlrpc_server_uri,
         )
+        self._is_running = True
+
+    def is_running(self) -> bool:
+        """
+        Returns:
+            bool: Whether the service is running; ie, able to accept requests.
+        """
+        return self._is_running
 
     async def __aenter__(self) -> Service:
         await self.setup()
@@ -78,6 +92,16 @@ class Service(Generic[Request, Reply]):
         self, exc_type: type[Exception], exc_value: Exception, traceback: TracebackType
     ):
         await self.shutdown()
+
+    def __del__(self):
+        print(f"del: {self._is_running}")
+        if self._is_running:
+            warnings.simplefilter("always", ResourceWarning)
+            warnings.warn(
+                f"The '{self._name}' service was never shutdown(). This may cause issues with this instance of ROS - please fix the errors and completely restart ROS.",
+                ResourceWarning,
+            )
+            warnings.simplefilter("default", ResourceWarning)
 
     async def shutdown(self) -> None:
         """
@@ -93,6 +117,7 @@ class Service(Generic[Request, Reply]):
         del self._node_handle.tcpros_handlers["service", self._name]
 
         self._node_handle.shutdown_callbacks.discard(self.shutdown)
+        self._is_running = False
 
     async def _handle_tcpros_conn(self, _, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
