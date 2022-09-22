@@ -20,8 +20,10 @@ if TYPE_CHECKING:
 class GoalManager:
     """
     Manages the interactions between a specific goal and an action client.
-    """
 
+    This class is not meant to be constructed by client objects; rather it is instantiated
+    by the :class:`~.ActionClient` to talk to the :class:`~.SimpleActionServer`.
+    """
     _action_client: ActionClient
     _goal: Goal
     _goal_id: str
@@ -70,17 +72,15 @@ class GoalManager:
 
     def _status_callback(self, status):
         del status
-        pass  # XXX update state
 
     def _result_callback(self, status, result: types.ActionResult):
         del status
-        # XXX update state
         self.forget()
 
-        self._result_fut.set_result(result)
+        if not self._result_fut.done():
+            self._result_fut.set_result(result)
 
     def _feedback_callback(self, status, feedback: types.ActionFeedback):
-        # XXX update state
         del status
 
         old, self._feedback_futs = self._feedback_futs, []
@@ -114,10 +114,6 @@ class GoalManager:
                 id=self._goal_id,
             )
         )
-
-        # XXX update state
-
-        # self.forget()
 
     def forget(self) -> None:
         """
@@ -314,7 +310,15 @@ class SimpleActionServer:
         return self._is_running
 
     def __del__(self):
-        if self._is_running:
+        # Shutdown can also be achieved by just shutting down each pub/sub
+        subs_pubs_running = (
+            self._status_pub.is_running() or
+            self._result_pub.is_running() or
+            self._feedback_pub.is_running() or
+            self._goal_sub.is_running() or
+            self._cancel_sub.is_running()
+        )
+        if subs_pubs_running and self._is_running:
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
                 f"The '{self._name}' action server was never shutdown(). This may cause issues with this instance of ROS - please fix the errors and completely restart ROS.",
@@ -382,38 +386,30 @@ class SimpleActionServer:
 
     def is_new_goal_available(self) -> bool:
         """
-        Whether the next goal of the server is defined.
-
         Returns:
-            bool: Whether the next goal is not ``None``.
+            bool: Whether the next goal is defined, or not ``None``.
         """
         return self.next_goal is not None
 
     def is_preempt_requested(self) -> bool:
         """
-        Whether the goal has been requested to be cancelled, and there is both
-        a goal currently running and a goal scheduled to be run shortly.
-
         Returns:
-            bool
+            bool: Whether the goal has been requested to be cancelled, and there is both
+            a goal currently running and a goal scheduled to be run shortly.
         """
         return bool(self.goal) if self.next_goal else self.is_cancel_requested()
 
     def is_cancel_requested(self) -> bool:
         """
-        Whether a goal is currently active and a cancel has been requested.
-
         Returns:
-            bool
+            bool: Whether a goal is currently active and a cancel has been requested.
         """
         return self.goal is not None and self.cancel_requested
 
     def is_active(self) -> bool:
         """
-        Returns whether there is an active goal running.
-
         Returns:
-            bool
+            bool: Returns whether there is an active goal running.
         """
         return self.goal is not None
 
@@ -581,7 +577,20 @@ class SimpleActionServer:
 
 
 class ActionClient:
+    """
+    Representation of an action client in txros. This works in conjunction with
+    the :class:`~.SimpleActionServer` by sending the servers goals to execute.
+    In response, the client receives feedback updates and the final result of the goal,
+    which it can handle by itself.
+    """
     def __init__(self, node_handle: NodeHandle, name: str, action_type: type[types.ActionMessage]):
+        """
+        Args:
+            node_handle (txros.NodeHandle): Node handle used to power the action client.
+            name (str): The name of the action client.
+            action_type (type[genpy.Message]): The action message type used by the
+                action client and server.
+        """
         self._node_handle = node_handle
         self._name = name
         self._type = action_type
@@ -606,6 +615,10 @@ class ActionClient:
         )
 
     async def setup(self):
+        """
+        Sets up the action client. This must be called before the action client
+        can be used.
+        """
         await asyncio.gather(
             self._goal_pub.setup(),
             self._cancel_pub.setup(),
@@ -615,6 +628,10 @@ class ActionClient:
         )
 
     async def shutdown(self):
+        """
+        Shuts down the action client. This should always be called when the action
+        client is no longer needed.
+        """
         await asyncio.gather(
             self._goal_pub.shutdown(),
             self._cancel_pub.shutdown(),
@@ -641,7 +658,9 @@ class ActionClient:
 
     def send_goal(self, goal: Goal) -> GoalManager:
         """
-        Sends a goal to a goal manager.
+        Sends a goal to a goal manager. The goal manager is responsible for the
+        communication between the action client and server; it assists in this process
+        by maintaining individual :class:`asyncio.Future` objects.
 
         Returns:
             GoalManager: The manager of the goal.

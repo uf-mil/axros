@@ -12,6 +12,8 @@ from typing import Any, Callable, Coroutine, Iterable, Protocol, Union, TYPE_CHE
 from xmlrpc import client
 from lxml.etree import XMLParser, fromstring, tostring
 
+from .exceptions import TxrosException
+
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
 
@@ -109,6 +111,7 @@ class AsyncServerProxy(client.ServerProxy):
         """
         self.transport = AsyncioTransport(node_handle)
         self.session = node_handle._aiohttp_session
+        self.node_handle = node_handle
         self.uri = uri
 
         if not headers:
@@ -150,10 +153,10 @@ class AsyncServerProxy(client.ServerProxy):
         return XMLRPCMethod(self.__request, name)
 
 
-class XMLRPCException(Exception):
+class XMLRPCException(TxrosException):
     """
-    Represents an error that occurred in the XMLRPC communication. Inherits only
-    from :class:`Exception`.
+    Represents an error that occurred in the XMLRPC communication. Inherits
+    from :class:`~.TxrosException`.
 
     .. container:: operations
 
@@ -167,10 +170,8 @@ class XMLRPCException(Exception):
             ``str(x)``.
 
     Attributes:
-        exception (:class:`Exception`): The exception caught in the error.
+        exception (Exception): The exception caught in the error.
         request_body (bytes): The request body of the request which caused the exception.
-        node_handle (:class:`~txros.NodeHandle`): The node handle which made the request
-            that caused the exception.
     """
 
     def __init__(self, exception: Exception, request_body: bytes, node_handle: NodeHandle):
@@ -188,24 +189,44 @@ class XMLRPCException(Exception):
 
         help_message = ""
         if exception.__class__.__name__ == "ClientConnectorError" and method_name == "requestTopic":
-            help_message = "It appears the node may not be able to find a node publishing the topic it is attempting to listen to. This likely means that the node publishing to the topic has died. Please check the publisher to the topic for issues and restart ROS."
+            help_message = f"It appears the node may not be able to find a node publishing the topic it is attempting to listen to. This likely means that the node publishing to the topic has died. Please check the publisher to the topic for issues and restart ROS.\n\nRequest body: {self.request_body}"
 
-        super().__init__(f"An error occurred in the XMLRPC communication. The '{self.node_handle._name}' node attempted to call '{method_name}' resulting in an error. For help resolving this exception, please see the txros documentation." + (f"\n\n{help_message}" if help_message else ""))
+        super().__init__(f"An error occurred in the XMLRPC communication. The '{self.node_handle._name}' node attempted to call '{method_name}' resulting in an error. For help resolving this exception, please see the txros documentation." + (f"\n\n{help_message}" if help_message else ""), self.node_handle)
 
 
-class ROSMasterException(Exception):
+class ROSMasterError(TxrosException):
     """
     Represents an exception that occurred when attempting to communicate with the
-    ROS Master Server. Inherits only from :class:`Exception`.
+    ROS Master Server. Unlike :class:`~.ROSMasterFailure`, this indicates that the
+    request completed, but the returned value is not usable. Similar to a bad request
+    HTTP error.
+
+    Inherits from :class:`~.TxrosException`.
 
     Attributes:
         ros_message (:class:`str`): The message from ROS explaining the exception.
-        code (:class:`int`): The code from ROS associated with the exception.
     """
-    def __init__(self, message: str, code: int):
+    def __init__(self, message: str, code: int, node_handle: NodeHandle):
         self.ros_message = message
-        self.code = code
-        super().__init__(f"An error was sent by ROS when communicating over XMLRPC. The code was '{self.code}' and the message was '{self.ros_message}'")
+        self._code = code # Should always be -1
+        super().__init__(f"Request from {node_handle._name}: {message}", node_handle)
+
+class ROSMasterFailure(TxrosException):
+    """
+    Represents a failure that occurred after a node sent an outgoing XMLRPC request
+    to ROS Master. Unlike :class:`~.ROSMasterError`, this indicates that the request
+    failed in progress, and did not complete. This may cause side effects visible
+    in other ROS services.
+
+    Inherits from :class:`~.TxrosException`.
+
+    Attributes:
+        ros_message (:class:`str`): The message from ROS explaining the exception.
+    """
+    def __init__(self, message: str, code: int, node_handle: NodeHandle):
+        self.ros_message = message
+        self._code = code # Should always be 0
+        super().__init__(f"Request from {node_handle._name} caused ROS failure: {message}. Please consider restarting ROS.", node_handle)
 
 
 class ROSMasterProxy:
@@ -250,9 +271,11 @@ class ROSMasterProxy:
             Raises:
                 :class:`XMLRPCException`: General error in communication. This could
                     be due to a multitude of reasons.
-                :class:`ROSMasterException`: The status code returned by the ROS master
-                    server was not 1, indicating that the request was not complete.
-
+                :class:`ROSMasterError`: The status code returned by the ROS master
+                    server was -1, indicating that the request completed, but the associated
+                    return value is not usable.
+                :class:`ROSMasterFailure`: The status code returned by the ROS master
+                    server was 0, indicating that the request did not successfully complete.
     """
 
     def __init__(self, proxy: AsyncServerProxy, caller_id: str):
@@ -272,7 +295,9 @@ class ROSMasterProxy:
             )(self._caller_id, *args)
             if status_code == 1:  # SUCCESS
                 return value
-            raise ROSMasterException(status_message, status_code)
+            if status_code == -1:
+                raise ROSMasterError(status_message, status_code, self._master_proxy.node_handle)
+            raise ROSMasterFailure(status_message, status_code, self._master_proxy.node_handle)
 
         return remote_caller
 

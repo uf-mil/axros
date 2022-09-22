@@ -89,3 +89,6 @@ async def callback(
         # If these exceptions are triggered, the client likely disconnected, and
         # there is no need to fulfill their request
         return
+    except asyncio.CancelledError:
+        send_string(serialize_dict(dict(error="shutting down...")), writer)
+        writer.close()
