@@ -55,7 +55,7 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
     async def test_set_and_delete(self):
         await self.nh.set_param('test_param_two', 'test_value')
         await self.nh.delete_param('test_param_two')
-        with self.assertRaises(txros.ROSMasterException):
+        with self.assertRaises(txros.ROSMasterError):
             await self.nh.get_param('test_param_two')
         self.assertFalse(await self.nh.has_param('test_param_two'))
 

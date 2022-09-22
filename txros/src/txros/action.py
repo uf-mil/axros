@@ -70,6 +70,9 @@ class GoalManager:
         except:
             traceback.print_exc()
 
+    def __str__(self) -> str:
+        return f"<txros.GoalManager at 0x{id(self):0x}, action_client={self._action_client} goal={self._goal}>"
+
     def _status_callback(self, status):
         del status
 
@@ -164,6 +167,9 @@ class Goal:
         if isinstance(self.goal, GoalStatus) and isinstance(rhs.goal, GoalStatus):
             return self.goal.goal_id.id == rhs.goal.goal_id.id
         return False
+
+    def __str__(self) -> str:
+        return f"<txros.Goal at 0x{id(self):0x}, goal={self.goal} status={self.status} status_text={self.status_text}>"
 
     def status_msg(self) -> GoalStatus:
         """
@@ -335,6 +341,9 @@ class SimpleActionServer:
     ):
         await self.shutdown()
 
+    def __str__(self) -> str:
+        return f"<txros.SimpleActionServer at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} started={self.started} goal={self.goal} node_handle={self._node_handle}>"
+
     def register_goal_callback(self, func: Callable | None) -> None:
         self.goal_cb = func
 
@@ -353,6 +362,9 @@ class SimpleActionServer:
         """
         Starts the status loop for the server.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         self.started = True
         self._status_loop_future = asyncio.create_task(self._status_loop())
 
@@ -361,11 +373,17 @@ class SimpleActionServer:
         Stops the status loop for the server, and clears all running goals and all
         goals scheduled to be run.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         self.goal = None
         self.next_goal = None
         self.started = False
 
     def accept_new_goal(self) -> None:
+        if not self.is_running():
+            raise RuntimeError("The action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         if not self.started:
             print(
                 "SIMPLE ACTION SERVER: attempted to accept_new_goal without being started"
@@ -389,6 +407,9 @@ class SimpleActionServer:
         Returns:
             bool: Whether the next goal is defined, or not ``None``.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         return self.next_goal is not None
 
     def is_preempt_requested(self) -> bool:
@@ -397,6 +418,9 @@ class SimpleActionServer:
             bool: Whether the goal has been requested to be cancelled, and there is both
             a goal currently running and a goal scheduled to be run shortly.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         return bool(self.goal) if self.next_goal else self.is_cancel_requested()
 
     def is_cancel_requested(self) -> bool:
@@ -404,6 +428,9 @@ class SimpleActionServer:
         Returns:
             bool: Whether a goal is currently active and a cancel has been requested.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         return self.goal is not None and self.cancel_requested
 
     def is_active(self) -> bool:
@@ -411,6 +438,9 @@ class SimpleActionServer:
         Returns:
             bool: Returns whether there is an active goal running.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         return self.goal is not None
 
     def _set_result(
@@ -445,6 +475,9 @@ class SimpleActionServer:
             result (Optional[genpy.Message]): The message to attach in the result.
             text (str): The text to set in the result. Defaults to an empty string.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         self._set_result(status=GoalStatus.SUCCEEDED, text=text, result=result)
 
     def set_aborted(self, result: genpy.Message | None = None, text: str = "") -> None:
@@ -455,6 +488,9 @@ class SimpleActionServer:
             result (Optional[genpy.Message]): The message to attach in the result.
             text (str): The text to set in the result. Defaults to an empty string.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         self._set_result(status=GoalStatus.ABORTED, text=text, result=result)
 
     def set_preempted(
@@ -467,6 +503,9 @@ class SimpleActionServer:
             result (Optional[genpy.Message]): The message to attach in the result.
             text (str): The text to set in the result. Defaults to an empty string.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         self._set_result(status=GoalStatus.PREEMPTED, text=text, result=result)
 
     def publish_feedback(self, feedback: genpy.Message | None = None) -> None:
@@ -477,6 +516,9 @@ class SimpleActionServer:
             feedback (Optional[genpy.Message]): The optional feedback message to add
                 to the sent message.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action server has never been setup() or was previously shutdown(). Please setup the server again before using.")
+
         if not self.started:
             print("SimpleActionServer: attempted to publish_feedback before starting")
             return
@@ -613,6 +655,7 @@ class ActionClient:
         self._feedback_sub = self._node_handle.subscribe(
             self._name + "/feedback", self._feedback_type, self._feedback_callback
         )
+        self._is_running = False
 
     async def setup(self):
         """
@@ -626,6 +669,7 @@ class ActionClient:
             self._result_sub.setup(),
             self._feedback_sub.setup(),
         )
+        self._is_running = True
 
     async def shutdown(self):
         """
@@ -639,6 +683,13 @@ class ActionClient:
             self._result_sub.shutdown(),
             self._feedback_sub.shutdown(),
         )
+        self._is_running = False
+
+    def is_running(self) -> bool:
+        return self._is_running
+
+    def __str__(self) -> str:
+        return f"<txros.ActionClient at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} node_handle={self._node_handle}>"
 
     def _status_callback(self, msg: GoalStatusArray):
         for status in msg.status_list:
@@ -665,6 +716,9 @@ class ActionClient:
         Returns:
             GoalManager: The manager of the goal.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action client has never been setup() or was previously shutdown(). Please setup the client again before using.")
+
         return GoalManager(self, goal)
 
     def cancel_all_goals(self) -> None:
@@ -672,6 +726,9 @@ class ActionClient:
         Sends a message to the mission cancellation topic requesting all goals to
         be cancelled.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action client has never been setup() or was previously shutdown(). Please setup the client again before using.")
+
         self._cancel_pub.publish(
             GoalID(
                 stamp=genpy.Time(0, 0),
@@ -686,6 +743,9 @@ class ActionClient:
         Args:
             time: The time to reference when selecting which goals to cancel.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action client has never been setup() or was previously shutdown(). Please setup the client again before using.")
+
         self._cancel_pub.publish(
             GoalID(
                 stamp=time,
@@ -698,6 +758,9 @@ class ActionClient:
         Waits for a server connection. When at least one connection is received,
         the function terminates.
         """
+        if not self.is_running():
+            raise RuntimeError(f"The {self._name} action client has never been setup() or was previously shutdown(). Please setup the client again before using.")
+
         while not (
             set(self._goal_pub.get_connections())
             & set(self._cancel_pub.get_connections())

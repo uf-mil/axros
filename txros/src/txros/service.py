@@ -94,7 +94,6 @@ class Service(Generic[Request, Reply]):
         await self.shutdown()
 
     def __del__(self):
-        print(f"del: {self._is_running}")
         if self._is_running:
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
