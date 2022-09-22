@@ -1,11 +1,11 @@
 #! /usr/bin/env python3
 import unittest
-import asyncio
-import rospy
+
 import rostest
-import time
-import txros
 from std_srvs.srv import SetBool, SetBoolRequest, SetBoolResponse
+
+import txros
+
 
 class ServiceTest(unittest.IsolatedAsyncioTestCase):
     """
@@ -13,8 +13,9 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
     """
 
     async def test_basic_service(self):
-        nh = txros.NodeHandle.from_argv("basic", always_default_name = True)
+        nh = txros.NodeHandle.from_argv("basic", always_default_name=True)
         await nh.setup()
+
         async def callback(_: SetBoolRequest) -> SetBoolResponse:
             return SetBoolResponse(True, "The response succeeded!")
 
@@ -31,16 +32,18 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
         await nh.shutdown()
 
     async def test_service_bad_call(self):
-        nh = txros.NodeHandle.from_argv("basic", always_default_name = True)
+        nh = txros.NodeHandle.from_argv("basic", always_default_name=True)
         with self.assertRaises(TypeError):
             async with nh:
+
                 async def callback(_: SetBoolRequest) -> SetBoolResponse:
                     return SetBoolResponse(True, "The response succeeded!")
 
                 service = nh.advertise_service("basic_service", SetBool, callback)
                 async with service:
                     service_client = nh.get_service_client("basic_service", SetBool)
-                    response = await service_client(1)
+                    await service_client(1)  # type: ignore
+
 
 if __name__ == "__main__":
     rostest.rosrun("txros", "test_service", ServiceTest)

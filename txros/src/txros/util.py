@@ -6,11 +6,9 @@ All non-private methods can be used throughout client and application code.
 from __future__ import annotations
 
 import asyncio
-from typing import TypeVar, Awaitable
+from typing import Awaitable, TypeVar
 
 import genpy
-from twisted.internet import defer, stdio
-from twisted.protocols import basic
 
 T = TypeVar("T")
 
@@ -27,37 +25,6 @@ async def wall_sleep(duration: genpy.Duration | float) -> None:
     elif not isinstance(duration, (float, int)):
         raise TypeError("expected float or genpy.Duration")
     await asyncio.sleep(duration)
-
-
-async def sleep(duration: genpy.Duration | float):
-    # printing rather than using DeprecationWarning because DeprecationWarning
-    # is disabled by default, and that's useless.
-    print("txros.util.sleep is deprecated! use txros.util.wall_sleep instead.")
-    return await wall_sleep(duration)
-
-def nonblocking_raw_input(prompt):
-    # We need an equivalent method for this
-    class P(basic.LineOnlyReceiver):
-        delimiter = "\n"
-
-        def __init__(self, prompt):
-            self._prompt = prompt
-            self.df = defer.Deferred()
-
-        def connectionMade(self):
-            self.transport.write(self._prompt)
-
-        def lineReceived(self, line):
-            self.df.callback(line)
-            self.transport.loseConnection()
-
-    p = P(Awaitable)
-    f = stdio.StandardIO(p)
-    try:
-        res = yield p.df
-        defer.returnValue(res)
-    finally:
-        f.loseConnection()
 
 
 async def wrap_timeout(
@@ -78,7 +45,7 @@ async def wrap_timeout(
             cancel the future when the task times out.
 
     Raises:
-        :class:`asyncio.TimeoutError`: The task did not complete on time.
+        asyncio.TimeoutError: The task did not complete on time.
 
     Returns:
         Any: The data returned from the awaitable.
@@ -119,7 +86,8 @@ async def wrap_time_notice(
         timeout = float(duration)
 
     task = asyncio.create_task(_print_message_helper(timeout, description))
-    await fut
+    result = await fut
     task.cancel()
 
     print(f"{description} succeeded!")
+    return result

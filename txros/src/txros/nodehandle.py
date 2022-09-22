@@ -329,6 +329,9 @@ class NodeHandle:
         self._is_running = False
         self._is_setting_up = False
 
+    def __str__(self) -> str:
+        return f"<txros.NodeHandle at 0x{id(self):0x}, name={self._name} running={self.is_running()} tcpros_uri={getattr(self, '_tcpros_server_uri', None)} xmlrpc_uri={getattr(self, 'xmlrpc_server_uri', None)}>"
+
     async def setup(self):
         """
         Sets up the node handle. This must be called before the node is used.
