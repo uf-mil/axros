@@ -49,11 +49,14 @@ async def receive_string(reader: asyncio.StreamReader) -> bytes:
     (length,) = struct.unpack("<I", await reader.readexactly(4))
     return await reader.readexactly(length)
 
+
 async def receive_byte(reader: asyncio.StreamReader) -> bytes:
     return await reader.readexactly(1)
 
+
 def send_string(string: bytes, writer: asyncio.StreamWriter) -> None:
     writer.write(struct.pack("<I", len(string)) + string)
+
 
 def send_byte(byte: bytes, writer: asyncio.StreamWriter) -> None:
     writer.write(byte)
@@ -67,7 +70,11 @@ async def callback(
     try:
         header = deserialize_dict(await receive_string(reader))
 
-        async def default(header: dict[str, str], reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        async def default(
+            header: dict[str, str],
+            reader: asyncio.StreamReader,
+            writer: asyncio.StreamWriter,
+        ):
             del header  # In the default case, we don't handle header
             send_string(serialize_dict(dict(error="unhandled connection")), writer)
             writer.close()

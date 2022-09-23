@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import asyncio
 from io import BytesIO
-from typing import TYPE_CHECKING, Protocol, Type, Callable, TypeVar, Generic
+from typing import TYPE_CHECKING, Callable, Generic, Protocol, Type, TypeVar
 
 import genpy
 
-from . import rosxmlrpc, tcpros, util, types
+from . import rosxmlrpc, tcpros, types, util
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
 
-S = TypeVar('S', bound = types.ServiceMessage)
+S = TypeVar("S", bound=types.ServiceMessage)
 
 
 class ServiceType(Protocol):
@@ -76,7 +76,9 @@ class ServiceClient(Generic[S]):
 
     async def __call__(self, req: genpy.Message):
         if req.__class__ != self._type._request_class:
-            raise TypeError(f"Expected {self._type._request_class} message type when calling {self._name} service, but got {req.__class__} instead.")
+            raise TypeError(
+                f"Expected {self._type._request_class} message type when calling {self._name} service, but got {req.__class__} instead."
+            )
 
         service_url = await self._node_handle.master_proxy.lookup_service(self._name)
 
@@ -87,9 +89,7 @@ class ServiceClient(Generic[S]):
         assert protocol == "rosrpc"
 
         loop = asyncio.get_event_loop()
-        reader, writer = await asyncio.open_connection(
-            host, port
-        )
+        reader, writer = await asyncio.open_connection(host, port)
         try:
             tcpros.send_string(
                 tcpros.serialize_dict(
@@ -100,7 +100,7 @@ class ServiceClient(Generic[S]):
                         type=self._type._type,
                     )
                 ),
-                writer
+                writer,
             )
 
             tcpros.deserialize_dict((await tcpros.receive_string(reader)))
@@ -114,7 +114,7 @@ class ServiceClient(Generic[S]):
             result = await tcpros.receive_byte(reader)
             data = await tcpros.receive_string(reader)
             if result:  # success
-                return (self._type._response_class().deserialize(data))
+                return self._type._response_class().deserialize(data)
             else:
                 raise ServiceError(data.decode())
         finally:

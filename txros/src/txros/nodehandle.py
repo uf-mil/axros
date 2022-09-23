@@ -28,6 +28,7 @@ from roscpp.srv import (
 from rosgraph_msgs.msg import Clock
 
 from . import (
+    exceptions,
     publisher,
     rosxmlrpc,
     service,
@@ -70,7 +71,9 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
     async def rpc_shutdown(self, _, msg: str = ""):
         print(f"Shutdown of {self.node_handle._name} node requested. Reason: {msg}")
         try:
-            await util.wrap_timeout(self.node_handle.shutdown(shutdown_servers = False), 3)
+            await util.wrap_timeout(
+                self.node_handle.shutdown(shutdown_servers=False), 3
+            )
         except asyncio.TimeoutError:
             pass
 
@@ -359,7 +362,9 @@ class NodeHandle:
                 await util.wall_sleep(1)  # pause so we don't retry immediately
             else:
                 other_node_proxy = rosxmlrpc.AsyncServerProxy(other_node_uri, self)
-                other_node_proxy = rosxmlrpc.ROSMasterProxy(other_node_proxy, self._name)
+                other_node_proxy = rosxmlrpc.ROSMasterProxy(
+                    other_node_proxy, self._name
+                )
                 try:
                     await util.wrap_timeout(
                         other_node_proxy.shutdown("new node registered with same name"),
@@ -445,7 +450,7 @@ class NodeHandle:
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
                 f"The {self._name} node is not currently running. It may have been shutdown previously or never started.",
-                ResourceWarning
+                ResourceWarning,
             )
             warnings.simplefilter("default", ResourceWarning)
             return
@@ -619,15 +624,13 @@ class NodeHandle:
                 should be the reply type associated with the service.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             txros.Service: The given service.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return service.Service(self, name, service_message, callback)
 
@@ -649,15 +652,13 @@ class NodeHandle:
                 the main message class.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             txros.ServiceClient: The constructed service client.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return serviceclient.ServiceClient(self, name, service_type)
 
@@ -682,15 +683,13 @@ class NodeHandle:
                 shared by the topic and return None.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             txros.Subscriber: The constructed subscriber.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return subscriber.Subscriber(self, name, message_type, callback)
 
@@ -713,15 +712,13 @@ class NodeHandle:
                 when they connect to the publisher.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             txros.Publisher: The given publisher.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return publisher.Publisher(self, name, message_type, latching)
 
@@ -736,16 +733,14 @@ class NodeHandle:
 
         Raises:
             txros.ROSMasterException: The parameter is not set.
-            RuntimeError: The node is not running.
+            NotSetup: The node is not running.
 
         Returns:
             :class:`txros.XMLRPCLegalType`: The value of the parameter with the given
             name.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.getParam(key)
 
@@ -758,15 +753,13 @@ class NodeHandle:
             key (str): The name of the parameter to check the status of.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             bool: Whether the parameter server has the specified key.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.hasParam(key)
 
@@ -778,16 +771,14 @@ class NodeHandle:
             key (str): The parameter to delete from the parameter server.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             int: The result of the delete operation. According to ROS documentation,
             this value can be ignored.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.deleteParam(key)
 
@@ -800,16 +791,14 @@ class NodeHandle:
             value (:class:`txros.XMLRPCLegalType`): The value to set for the given parameter.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             int: The result of setting the parameter. According to the ROS documentation,
             this value can be ignored.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.setParam(key, value)
 
@@ -825,15 +814,13 @@ class NodeHandle:
             key (str): The search key to use to find parameters.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             str: The name of the first key found.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.searchParam(key)
 
@@ -842,14 +829,12 @@ class NodeHandle:
         Gets the names of all parameters in the ROS parameter server.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             List[str]: The names of all parameters in the server.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.getParamNames()

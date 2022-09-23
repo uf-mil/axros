@@ -13,17 +13,20 @@ from typing import (
     ClassVar,
     Coroutine,
     Dict,
+    Optional,
     Protocol,
     TypeVar,
-    Optional,
     runtime_checkable,
 )
-from actionlib_msgs.msg import GoalID, GoalStatus
 
+from actionlib_msgs.msg import GoalID, GoalStatus
 from std_msgs.msg import Header
 
 TCPROSHeader = Dict[str, str]
-TCPROSProtocol = Callable[[TCPROSHeader, asyncio.StreamReader, asyncio.StreamWriter], Coroutine[Any, Any, None]]
+TCPROSProtocol = Callable[
+    [TCPROSHeader, asyncio.StreamReader, asyncio.StreamWriter],
+    Coroutine[Any, Any, None],
+]
 
 
 @runtime_checkable
@@ -62,42 +65,25 @@ class ServiceMessage(Protocol[Request, Response]):
     _request_class: type[Request]
     _response_class: type[Response]
 
+
 Goal = TypeVar("Goal", bound=Message)
 Feedback = TypeVar("Feedback", bound=Message)
 Result = TypeVar("Result", bound=Message)
 
-class HasGoal(Protocol[Goal]):
-    goal: Goal
 
-
-class ActionGoal(HasGoal[Goal], Message, Protocol, metaclass=ABCMeta):
+@runtime_checkable
+class ActionGoal(MessageWithHeader, Protocol[Goal], metaclass=ABCMeta):
     goal_id: GoalID
     goal: Goal
 
-    def __init__(
-        self,
-        header: Optional[Header] = None,
-        goal_id: Optional[GoalID] = None,
-        goal: Optional[Goal] = None,
-    ) -> None:
-        ...
-
-
-class HasResult(Protocol[Result]):
-    result: Result
-
 
 @runtime_checkable
-class ActionResult(HasResult[Result], Message, Protocol, metaclass=ABCMeta):
+class ActionResult(Message, Protocol[Result], metaclass=ABCMeta):
     status: GoalStatus
 
 
-class HasFeedback(Protocol[Feedback]):
-    feedback: Feedback
-
-
 @runtime_checkable
-class ActionFeedback(HasFeedback[Feedback], Message, Protocol, metaclass=ABCMeta):
+class ActionFeedback(Message, Protocol[Feedback], metaclass=ABCMeta):
     status: GoalStatus
 
 
@@ -106,9 +92,3 @@ class Action(Protocol[Goal, Feedback, Result]):
     action_goal: ActionGoal[Goal]
     action_result: ActionResult[Result]
     action_feedback: ActionFeedback[Feedback]
-
-@runtime_checkable
-class ActionMessage(MessageWithHeader, Protocol):
-    action_goal: Message
-    action_result: Message
-    action_feedback: Message

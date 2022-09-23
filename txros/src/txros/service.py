@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import warnings
 import asyncio
 import traceback
+import warnings
 from io import BytesIO
-from typing import TYPE_CHECKING, Callable, Awaitable, TypeVar, Generic
 from types import TracebackType
+from typing import TYPE_CHECKING, Awaitable, Callable, Generic, TypeVar
 
 from . import tcpros, types
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
 
-Request = TypeVar('Request', bound = types.Message)
-Reply = TypeVar('Reply', bound = types.Message)
+Request = TypeVar("Request", bound=types.Message)
+Reply = TypeVar("Reply", bound=types.Message)
 
 
 class Service(Generic[Request, Reply]):
@@ -32,6 +32,7 @@ class Service(Generic[Request, Reply]):
             On entering the block, the publisher is :meth:`~.setup`; upon leaving the block,
             the publisher is :meth:`~.shutdown`.
     """
+
     def __init__(
         self,
         node_handle: NodeHandle,
@@ -118,7 +119,9 @@ class Service(Generic[Request, Reply]):
         self._node_handle.shutdown_callbacks.discard(self.shutdown)
         self._is_running = False
 
-    async def _handle_tcpros_conn(self, _, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def _handle_tcpros_conn(
+        self, _, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ):
         try:
             # check headers
 
@@ -132,7 +135,7 @@ class Service(Generic[Request, Reply]):
                         response_type=self._type._response_class._type,
                     )
                 ),
-                writer
+                writer,
             )
 
             while True:
