@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import warnings
 import asyncio
 import traceback
+import warnings
 from io import BytesIO
-from typing import TYPE_CHECKING, Generic, TypeVar
 from types import TracebackType
+from typing import TYPE_CHECKING, Generic, TypeVar
 
-from txros import tcpros, types
+from txros import exceptions, tcpros, types
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
@@ -126,7 +126,7 @@ class Publisher(Generic[M]):
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
                 f"The {self._name} subscriber is not currently running. It may have been shutdown previously or never started.",
-                ResourceWarning
+                ResourceWarning,
             )
             warnings.simplefilter("default", ResourceWarning)
             return
@@ -209,7 +209,19 @@ class Publisher(Generic[M]):
 
         Args:
             msg (genpy.Message): The ROS message to send to all connected clients.
+
+        Raises:
+            TypeError: The message type was invalid.
+            NotSetup: The publisher was not :meth:`~.setup` or was previously :meth:`~.shutdown`.
         """
+        if not isinstance(msg, self.message_type):
+            raise TypeError(
+                f"Cannot publish message of type {msg.__class__} on {self._name} publisher, which only accepts {self.message_type}."
+            )
+
+        if not self.is_running():
+            raise exceptions.NotSetup(self, self._node_handle)
+
         x = BytesIO()
         self.message_type.serialize(msg, x)
         data = x.getvalue()

@@ -28,6 +28,7 @@ from roscpp.srv import (
 from rosgraph_msgs.msg import Clock
 
 from . import (
+    exceptions,
     publisher,
     rosxmlrpc,
     service,
@@ -68,16 +69,23 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
         return 1, "success", self.node_handle.master_uri
 
     async def rpc_shutdown(self, _, msg: str = ""):
-        print("Shutdown requested. Reason:", repr(msg))
-        # XXX should somehow tell/wait for user code to cleanly exit here, e.g.
-        # by .cancel()ing main coroutine
-        await self.node_handle.shutdown()
+        print(f"Shutdown of {self.node_handle._name} node requested. Reason: {msg}")
+        try:
+            await util.wrap_timeout(
+                self.node_handle.shutdown(shutdown_servers=False), 3
+            )
+        except asyncio.TimeoutError:
+            pass
 
         async def _kill_soon():
-            await util.wall_sleep(0)
+            await self.node_handle.shutdown_servers()
+            print(f"Shut down of {self.node_handle._name} node complete.")
             sys.exit(0)
 
-        await _kill_soon()
+        self.my_task = asyncio.create_task(_kill_soon())
+        # Get exception so the loop doesn't print it out later when the program
+        # has completed.
+        self.my_task.add_done_callback(lambda t: t.exception())
         return (1, "success", False)
 
     def rpc_getPid(self, _) -> tuple[int, str, int]:
@@ -125,56 +133,6 @@ class NodeHandle:
         in the node which already exists being killed to make way for the new node
         you are initiailizing. If the other node is shutdown, it will be shutdown
         safely.
-
-    The node handle can be used for general purposes, such as parameters and sleeping:
-
-    .. code-block:: python
-
-        >>> import os
-        >>> import txros
-        >>> nh = await NodeHandle("/test", "special_node", "localhost", os.environ["ROS_MASTER_URI"], {})
-        >>> nh.get_name()
-        '/test/special_node'
-        >>> await nh.set_param("special_param", True)
-        >>> await nh.get_param("special_param")
-        True
-        >>> await nh.delete_param("special_param")
-        >>> try:
-        ...     await nh.get_param("special_param")
-        ... except txros.ROSMasterException:
-        ...     print("This parameter does not exist!")
-        This parameter does not exist!
-        >>> await nh.sleep(2) # Sleeps for 2 seconds
-
-    The node handle can also be used for publishing and subscribing to topics. Note
-    that all publishers and subscribers must be setup.
-
-    .. code-block:: python
-
-        >>> import os
-        >>> import txros
-        >>> nh = await txros.NodeHandle("/test", "special_node", "localhost", os.environ["ROS_MASTER_URI"], {})
-        >>> from std_msgs.msg import Int32
-        >>> pub = nh.advertise("running_time", Int32)
-        >>> await pub.setup()
-        >>> async def publish():
-        ...     try:
-        ...         count = 0
-        ...         while True:
-        ...             pub.publish(Int32(count))
-        ...             count += 1
-        ...             await asyncio.sleep(1)
-        ...     except asyncio.CancelledError as _:
-        ...         # When task gets cancelled, stop publishing
-        ...         pass
-        >>> task = asyncio.create_task(publish()) # Start publishing!
-        >>> sub = nh.subscribe("running_time", Int32)
-        >>> await sub.setup()
-        >>> while True:
-        ...     print(await sub.get_next_message())
-        4
-        5
-        6
 
     .. container:: operations
 
@@ -224,7 +182,12 @@ class NodeHandle:
 
     @classmethod
     def from_argv_with_remaining(
-        cls, default_name: str, argv: list[str] | None = None, anonymous: bool = False
+        cls,
+        default_name: str,
+        argv: list[str] | None = None,
+        anonymous: bool = False,
+        *,
+        always_default_name=False,
     ) -> tuple[NodeHandle, list[str]]:
         """
         Constructs a handle from an argument vector. Attempts to find any missing
@@ -236,6 +199,9 @@ class NodeHandle:
             argv (list[str] | None): The argument vector to use.
             anonymous (bool): Whether to make the node anonymous. Appends a random
                 number to the end of the node name.
+            always_default_name (bool): Whether to always use the default name of
+                the node, avoiding remappings. Commonly used in testing or complex
+                environments where stronger node control is desired. Defaults to ``True``.
         """
         if not argv:
             argv = sys.argv
@@ -253,7 +219,7 @@ class NodeHandle:
         name = default_name
         if anonymous:
             name = name + "_" + "{:016x}".format(random.randrange(2**64))
-        if "__name" in remappings:
+        if "__name" in remappings and not always_default_name:
             name = remappings["__name"]
 
         addr = socket.gethostname()  # could be a bit smarter
@@ -321,6 +287,9 @@ class NodeHandle:
         self._is_running = False
         self._is_setting_up = False
 
+    def __str__(self) -> str:
+        return f"<txros.NodeHandle at 0x{id(self):0x}, name={self._name} running={self.is_running()} tcpros_uri={getattr(self, '_tcpros_server_uri', None)} xmlrpc_uri={getattr(self, 'xmlrpc_server_uri', None)}>"
+
     async def setup(self):
         """
         Sets up the node handle. This must be called before the node is used.
@@ -363,10 +332,10 @@ class NodeHandle:
 
         self._xmlrpc_runner = web.AppRunner(app)
         await self._xmlrpc_runner.setup()
-        self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host="127.0.1.1", port=0)
+        self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host=self._addr, port=0)
         await self._xmlrpc_site.start()
 
-        self.shutdown_callbacks.add(self._xmlrpc_runner.cleanup)
+        # self.shutdown_callbacks.add(self._xmlrpc_runner.cleanup)
         self.xmlrpc_server_uri = "http://%s:%i/" % (
             self._addr,
             self._xmlrpc_site._server.sockets[0].getsockname()[1],
@@ -376,23 +345,26 @@ class NodeHandle:
         self._tcpros_server = await asyncio.start_server(
             functools.partial(tcpros.callback, self.tcpros_handlers),
             family=socket.AF_INET,
+            host=self._addr,
             port=0,
         )  # Port 0 lets the host assign the port for us
         tcpros_server_port = self._tcpros_server.sockets[0].getsockname()[1]
         self._tcpros_server_addr = self._addr, tcpros_server_port
         self._tcpros_server_uri = f"rosrpc://{self._addr}:{tcpros_server_port}"
-        print(f"XMLRPC URI: {self.xmlrpc_server_uri}")
 
         while True:
             try:
                 other_node_uri = await self.master_proxy.lookupNode(self._name)
-            except rosxmlrpc.ROSMasterException:
+            except rosxmlrpc.ROSMasterError:
                 break  # assume that error means unknown node
             except Exception as _:
                 traceback.print_exc()
                 await util.wall_sleep(1)  # pause so we don't retry immediately
             else:
                 other_node_proxy = rosxmlrpc.AsyncServerProxy(other_node_uri, self)
+                other_node_proxy = rosxmlrpc.ROSMasterProxy(
+                    other_node_proxy, self._name
+                )
                 try:
                     await util.wrap_timeout(
                         other_node_proxy.shutdown("new node registered with same name"),
@@ -406,7 +378,7 @@ class NodeHandle:
 
         try:
             self._use_sim_time = await self.get_param("/use_sim_time")
-        except rosxmlrpc.ROSMasterException:  # assume that error means not found
+        except rosxmlrpc.ROSMasterError:  # assume that error means not found
             self._use_sim_time = False
 
         if self._use_sim_time:
@@ -468,37 +440,50 @@ class NodeHandle:
             )
             warnings.simplefilter("default", ResourceWarning)
 
-    async def shutdown(self) -> None:
+    async def shutdown(self, *, shutdown_servers: bool = True) -> None:
         """
         Shuts down all active connections. This should always be called before
         the loop is closed, or else multiple instances of :class:`ResourceWarning`
         will be emitted.
         """
-        if not hasattr(self, "_shutdown_thread"):
-            self._shutdown_thread = self._real_shutdown()
-        return await self._shutdown_thread
+        if not self._is_running:
+            warnings.simplefilter("always", ResourceWarning)
+            warnings.warn(
+                f"The {self._name} node is not currently running. It may have been shutdown previously or never started.",
+                ResourceWarning,
+            )
+            warnings.simplefilter("default", ResourceWarning)
+            return
 
-    async def _real_shutdown(self):
+        if self._is_running:
+            return await self._real_shutdown(shutdown_servers)
+
+    async def shutdown_servers(self):
+        if not self._aiohttp_session.closed:
+            self._tcpros_server.close()
+            await self._tcpros_server.wait_closed()
+            await self._xmlrpc_runner.cleanup()
+            await self._aiohttp_session.close()
+
+    async def _real_shutdown(self, shutdown_servers: bool):
         self._is_running = False
 
+        count, total_coros = 1, len(self.shutdown_callbacks)
         while self.shutdown_callbacks:
             self.shutdown_callbacks, old = set(), self.shutdown_callbacks
             old_coros = [func() for func in old]
             for coro in old_coros:
                 try:
                     await coro
+                    count += 1
                 except:
                     traceback.print_exc()
 
         # Close the open aiohttp connection used for XMLRPC
         # Clean this up LAST - other services/publishers/subscribers may still
         # be using this session
-        if not self._aiohttp_session.closed:
-            # print("it's not closed lol")
-            self._tcpros_server.close()
-            await self._tcpros_server.wait_closed()
-            await self._xmlrpc_runner.cleanup()
-            await self._aiohttp_session.close()
+        if shutdown_servers:
+            await self.shutdown_servers()
 
     def get_name(self) -> str:
         """
@@ -526,7 +511,7 @@ class NodeHandle:
         Sleeps for a specified amount of time.
 
         Args:
-            time (Union[float, int, genpy.Time]): The amount of time to sleep until.
+            future_time (Union[float, int, genpy.Time]): The amount of time to sleep until.
                 If a float or integer is used, then the generated time is constructed
                 through the ``from_sec`` method of ``genpy.Time``.
 
@@ -559,8 +544,11 @@ class NodeHandle:
 
         Raises:
             TypeError: The argument passed to ``duration`` was not an allowed type.
+            ValueError: The request sleep length was non-negative.
         """
         if isinstance(duration, (float, int)):
+            if duration < 0:
+                raise ValueError("The sleep length must be non-negative.")
             duration = genpy.Duration.from_sec(duration)
         elif not isinstance(duration, genpy.Duration):
             raise TypeError("expected float or genpy.Duration")
@@ -610,7 +598,7 @@ class NodeHandle:
         Returns:
             bool: Whether the node handle is not running. This is ``True`` by default,
             calling :meth:`~.setup` on the node will make this ``False``. Will always
-            be opposite of :meth`~.is_running`.
+            be opposite of :meth:`~.is_running`.
         """
         return not self._is_running
 
@@ -625,16 +613,24 @@ class NodeHandle:
         arguments passed to this method are passed into the constructor of the service;
         check there for information on what arguments can be passed in.
 
+        Args:
+            name (str): The name to use for the service.
+            service_message (type[genpy.Message]): A ROS service class to use with the service.
+                The callback method used by the class will receive the request
+                class associated with the service, and is expected to return the
+                response class associated with this class.
+            callback (Callable[[genpy.Message], Awaitable[genpy.Message]]): An asynchronous callback
+                to process all incoming service requests. The returned message type
+                should be the reply type associated with the service.
+
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             txros.Service: The given service.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return service.Service(self, name, service_message, callback)
 
@@ -656,15 +652,13 @@ class NodeHandle:
                 the main message class.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             txros.ServiceClient: The constructed service client.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return serviceclient.ServiceClient(self, name, service_type)
 
@@ -689,15 +683,13 @@ class NodeHandle:
                 shared by the topic and return None.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             txros.Subscriber: The constructed subscriber.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return subscriber.Subscriber(self, name, message_type, callback)
 
@@ -720,15 +712,13 @@ class NodeHandle:
                 when they connect to the publisher.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             txros.Publisher: The given publisher.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return publisher.Publisher(self, name, message_type, latching)
 
@@ -743,16 +733,14 @@ class NodeHandle:
 
         Raises:
             txros.ROSMasterException: The parameter is not set.
-            RuntimeError: The node is not running.
+            NotSetup: The node is not running.
 
         Returns:
             :class:`txros.XMLRPCLegalType`: The value of the parameter with the given
             name.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.getParam(key)
 
@@ -765,15 +753,13 @@ class NodeHandle:
             key (str): The name of the parameter to check the status of.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             bool: Whether the parameter server has the specified key.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.hasParam(key)
 
@@ -785,16 +771,14 @@ class NodeHandle:
             key (str): The parameter to delete from the parameter server.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             int: The result of the delete operation. According to ROS documentation,
             this value can be ignored.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.deleteParam(key)
 
@@ -807,16 +791,14 @@ class NodeHandle:
             value (:class:`txros.XMLRPCLegalType`): The value to set for the given parameter.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             int: The result of setting the parameter. According to the ROS documentation,
             this value can be ignored.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.setParam(key, value)
 
@@ -832,15 +814,13 @@ class NodeHandle:
             key (str): The search key to use to find parameters.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             str: The name of the first key found.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.searchParam(key)
 
@@ -849,14 +829,12 @@ class NodeHandle:
         Gets the names of all parameters in the ROS parameter server.
 
         Raises:
-            RuntimeError: The node is not running. The node likely needs to be :meth:`~.setup`.
+            NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
             List[str]: The names of all parameters in the server.
         """
         if not self._is_running and not self._is_setting_up:
-            raise RuntimeError(
-                "The node is not currently running. It may never have been setup() or may have already been shutdown()."
-            )
+            raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.getParamNames()

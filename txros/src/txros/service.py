@@ -2,23 +2,28 @@ from __future__ import annotations
 
 import asyncio
 import traceback
+import warnings
 from io import BytesIO
-from typing import TYPE_CHECKING, Callable, Awaitable, TypeVar, Generic
 from types import TracebackType
+from typing import TYPE_CHECKING, Awaitable, Callable, Generic, TypeVar
 
 from . import tcpros, types
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
 
-Request = TypeVar('Request', bound = types.Message)
-Reply = TypeVar('Reply', bound = types.Message)
+Request = TypeVar("Request", bound=types.Message)
+Reply = TypeVar("Reply", bound=types.Message)
 
 
 class Service(Generic[Request, Reply]):
     """
     A service in the txROS suite. Handles incoming requests through a user-supplied
-    callback function, which is expected to return a response message.
+    asynchronous callback function, which is expected to return a response message.
+
+    This class completes the server aspect of the server-client relationship in
+    ROS. The client class is the :class:`txros.ServiceClient` class - this class
+    can be used to call services.
 
     .. container:: operations
 
@@ -27,6 +32,7 @@ class Service(Generic[Request, Reply]):
             On entering the block, the publisher is :meth:`~.setup`; upon leaving the block,
             the publisher is :meth:`~.shutdown`.
     """
+
     def __init__(
         self,
         node_handle: NodeHandle,
@@ -43,9 +49,9 @@ class Service(Generic[Request, Reply]):
                 The callback method used by the class will receive the request
                 class associated with the service, and is expected to return the
                 response class associated with this class.
-            callback (Callable[[genpy.Message], defer.Deferred]): The callback
-                to process all incoming service requests. The callback should return
-                the service response class through a Deferred object.
+            callback (Callable[[genpy.Message], Awaitable[genpy.Message]]): An asynchronous callback
+                to process all incoming service requests. The returned message type
+                should be the reply type associated with the service.
         """
         self._node_handle = node_handle
         self._name = self._node_handle.resolve_name(name)
@@ -53,6 +59,7 @@ class Service(Generic[Request, Reply]):
         self._callback = callback
 
         self._node_handle.shutdown_callbacks.add(self.shutdown)
+        self._is_running = False
 
     async def setup(self) -> None:
         """
@@ -69,6 +76,14 @@ class Service(Generic[Request, Reply]):
             self._node_handle._tcpros_server_uri,
             self._node_handle.xmlrpc_server_uri,
         )
+        self._is_running = True
+
+    def is_running(self) -> bool:
+        """
+        Returns:
+            bool: Whether the service is running; ie, able to accept requests.
+        """
+        return self._is_running
 
     async def __aenter__(self) -> Service:
         await self.setup()
@@ -78,6 +93,15 @@ class Service(Generic[Request, Reply]):
         self, exc_type: type[Exception], exc_value: Exception, traceback: TracebackType
     ):
         await self.shutdown()
+
+    def __del__(self):
+        if self._is_running:
+            warnings.simplefilter("always", ResourceWarning)
+            warnings.warn(
+                f"The '{self._name}' service was never shutdown(). This may cause issues with this instance of ROS - please fix the errors and completely restart ROS.",
+                ResourceWarning,
+            )
+            warnings.simplefilter("default", ResourceWarning)
 
     async def shutdown(self) -> None:
         """
@@ -93,8 +117,11 @@ class Service(Generic[Request, Reply]):
         del self._node_handle.tcpros_handlers["service", self._name]
 
         self._node_handle.shutdown_callbacks.discard(self.shutdown)
+        self._is_running = False
 
-    async def _handle_tcpros_conn(self, _, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def _handle_tcpros_conn(
+        self, _, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ):
         try:
             # check headers
 
@@ -108,7 +135,7 @@ class Service(Generic[Request, Reply]):
                         response_type=self._type._response_class._type,
                     )
                 ),
-                writer
+                writer,
             )
 
             while True:

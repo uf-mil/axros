@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-import warnings
 import asyncio
 import traceback
-from typing import TYPE_CHECKING, Callable, Generic, TypeVar
+import warnings
 from types import TracebackType
+from typing import TYPE_CHECKING, Callable, Generic, TypeVar
 
 import genpy
 
-from . import rosxmlrpc, tcpros, util, types
+from . import exceptions, rosxmlrpc, tcpros, types, util
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
 
-M = TypeVar("M", bound = types.Message)
+M = TypeVar("M", bound=types.Message)
+
 
 class Subscriber(Generic[M]):
     """
@@ -27,6 +28,7 @@ class Subscriber(Generic[M]):
             On entering the block, the subscriber is :meth:`~.setup`; upon leaving the block,
             the subscriber is :meth:`~.shutdown`.
     """
+
     _message_futs: list[asyncio.Future]
     _publisher_threads: dict[str, asyncio.Task]
     _is_running: bool
@@ -76,12 +78,10 @@ class Subscriber(Generic[M]):
         self._node_handle.xmlrpc_handlers[
             "publisherUpdate", self._name
         ] = self._handle_publisher_list
-        publishers = (
-            await self._node_handle.master_proxy.register_subscriber(
-                self._name,
-                self.message_type._type,
-                self._node_handle.xmlrpc_server_uri,
-            )
+        publishers = await self._node_handle.master_proxy.register_subscriber(
+            self._name,
+            self.message_type._type,
+            self._node_handle.xmlrpc_server_uri,
         )
         self._handle_publisher_list(publishers)
         self._is_running = True
@@ -91,7 +91,7 @@ class Subscriber(Generic[M]):
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
                 f"The '{self._name}' subscriber was never shutdown(). This may cause issues with this instance of ROS - please fix the errors and completely restart ROS.",
-                ResourceWarning
+                ResourceWarning,
             )
             warnings.simplefilter("default", ResourceWarning)
 
@@ -123,7 +123,7 @@ class Subscriber(Generic[M]):
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
                 f"The {self._name} subscriber is not currently running. It may have been shutdown previously or never started.",
-                ResourceWarning
+                ResourceWarning,
             )
             warnings.simplefilter("default", ResourceWarning)
             return
@@ -166,10 +166,17 @@ class Subscriber(Generic[M]):
         """
         Returns a deferred which will contain the next message.
 
+        Raises:
+            NotSetup: The subscriber was never :meth:`~.setup` or was previously
+                :meth:`~.shutdown`.
+
         Returns:
             asyncio.Future[genpy.Message]: A future which will eventually contain
             the next message published on the topic.
         """
+        if not self.is_running():
+            raise exceptions.NotSetup(self, self._node_handle)
+
         res = asyncio.Future()
         self._message_futs.append(res)
         return res
@@ -197,9 +204,7 @@ class Subscriber(Generic[M]):
                 _, host, port = value
                 assert isinstance(host, str)
                 assert isinstance(port, int)
-                reader, writer = await asyncio.open_connection(
-                    host, port
-                )
+                reader, writer = await asyncio.open_connection(host, port)
                 try:
                     tcpros.send_string(
                         tcpros.serialize_dict(
@@ -211,9 +216,11 @@ class Subscriber(Generic[M]):
                                 type=self.message_type._type,
                             )
                         ),
-                        writer
+                        writer,
                     )
-                    header = tcpros.deserialize_dict((await tcpros.receive_string(reader)))
+                    header = tcpros.deserialize_dict(
+                        (await tcpros.receive_string(reader))
+                    )
                     self._connections[writer] = header.get("callerid", None)
                     try:
                         while True:
@@ -230,15 +237,30 @@ class Subscriber(Generic[M]):
                             old, self._message_futs = self._message_futs, []
                             for fut in old:
                                 fut.set_result(msg)
-                    except (ConnectionRefusedError, BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
+                    except (
+                        ConnectionRefusedError,
+                        BrokenPipeError,
+                        ConnectionResetError,
+                        asyncio.IncompleteReadError,
+                    ):
                         pass
                     finally:
                         del self._connections[writer]
-                except (ConnectionRefusedError, BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
+                except (
+                    ConnectionRefusedError,
+                    BrokenPipeError,
+                    ConnectionResetError,
+                    asyncio.IncompleteReadError,
+                ):
                     pass
                 finally:
                     writer.close()
-            except (ConnectionRefusedError, BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
+            except (
+                ConnectionRefusedError,
+                BrokenPipeError,
+                ConnectionResetError,
+                asyncio.IncompleteReadError,
+            ):
                 pass
             except Exception:
                 traceback.print_exc()

@@ -11,9 +11,11 @@ from actionlib.msg import TestAction, TestGoal
 
 
 async def main():
-    nh = await txros.NodeHandle.from_argv("action_test_node", anonymous=True)
+    nh = txros.NodeHandle.from_argv("action_test_node", anonymous=True)
+    await nh.setup()
 
     ac = action.ActionClient(nh, "test_action", TestAction)
+    await ac.setup()
 
     x = random.randrange(1000)
     goal_manager = ac.send_goal(
@@ -24,19 +26,10 @@ async def main():
     print("sent goal")
 
     while True:
-        result, index = await asyncio.gather(
-            goal_manager.get_feedback(), goal_manager.get_result()
-        )
-
-        if index == 0:  # feedback
-            print("got feedback", result.feedback)
-        else:
-            assert index == 1  # result
-
-            assert result.result == x + 1000, result.result
-            print("success")
-
-            break
+        result = await goal_manager.get_result()
+        print(f"Result is: {result}")
+        await asyncio.sleep(0.1)
+    await nh.shutdown()
 
 if __name__ == "__main__":
     uvloop.install()

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-import warnings
 import asyncio
 import random
 import traceback
-from typing import TYPE_CHECKING, Callable
-
+import warnings
 from types import TracebackType
+from typing import TYPE_CHECKING, Callable, Generic
+
 import genpy
 from actionlib_msgs.msg import GoalID, GoalStatus, GoalStatusArray
 from std_msgs.msg import Header
 
-from . import util, types
+from txros.exceptions import NotSetup
+
+from . import types, util
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
@@ -20,6 +22,9 @@ if TYPE_CHECKING:
 class GoalManager:
     """
     Manages the interactions between a specific goal and an action client.
+
+    This class is not meant to be constructed by client objects; rather it is instantiated
+    by the :class:`~.ActionClient` to talk to the :class:`~.SimpleActionServer`.
     """
 
     _action_client: ActionClient
@@ -68,19 +73,20 @@ class GoalManager:
         except:
             traceback.print_exc()
 
+    def __str__(self) -> str:
+        return f"<txros.GoalManager at 0x{id(self):0x}, action_client={self._action_client} goal={self._goal}>"
+
     def _status_callback(self, status):
         del status
-        pass  # XXX update state
 
     def _result_callback(self, status, result: types.ActionResult):
         del status
-        # XXX update state
         self.forget()
 
-        self._result_fut.set_result(result)
+        if not self._result_fut.done():
+            self._result_fut.set_result(result)
 
     def _feedback_callback(self, status, feedback: types.ActionFeedback):
-        # XXX update state
         del status
 
         old, self._feedback_futs = self._feedback_futs, []
@@ -114,10 +120,6 @@ class GoalManager:
                 id=self._goal_id,
             )
         )
-
-        # XXX update state
-
-        # self.forget()
 
     def forget(self) -> None:
         """
@@ -169,6 +171,9 @@ class Goal:
             return self.goal.goal_id.id == rhs.goal.goal_id.id
         return False
 
+    def __str__(self) -> str:
+        return f"<txros.Goal at 0x{id(self):0x}, goal={self.goal} status={self.status} status_text={self.status_text}>"
+
     def status_msg(self) -> GoalStatus:
         """
         Constructs a GoalStatus message from the Goal class.
@@ -188,7 +193,7 @@ class Goal:
         return msg
 
 
-class SimpleActionServer:
+class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
     """
     A simplified implementation of an action server. At a given time, can only at most
     have a current goal and a next goal. If new goals arrive with one already queued
@@ -233,7 +238,7 @@ class SimpleActionServer:
         self,
         node_handle: NodeHandle,
         name: str,
-        action_type: type[types.ActionMessage],
+        action_type: type[types.Action[types.Goal, types.Feedback, types.Result]],
         goal_cb: Callable | None = None,
         preempt_cb: Callable | None = None,
     ):
@@ -314,7 +319,15 @@ class SimpleActionServer:
         return self._is_running
 
     def __del__(self):
-        if self._is_running:
+        # Shutdown can also be achieved by just shutting down each pub/sub
+        subs_pubs_running = (
+            self._status_pub.is_running()
+            or self._result_pub.is_running()
+            or self._feedback_pub.is_running()
+            or self._goal_sub.is_running()
+            or self._cancel_sub.is_running()
+        )
+        if subs_pubs_running and self._is_running:
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
                 f"The '{self._name}' action server was never shutdown(). This may cause issues with this instance of ROS - please fix the errors and completely restart ROS.",
@@ -330,6 +343,9 @@ class SimpleActionServer:
         self, exc_type: type[Exception], exc_value: Exception, traceback: TracebackType
     ):
         await self.shutdown()
+
+    def __str__(self) -> str:
+        return f"<txros.SimpleActionServer at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} started={self.started} goal={self.goal} node_handle={self._node_handle}>"
 
     def register_goal_callback(self, func: Callable | None) -> None:
         self.goal_cb = func
@@ -349,6 +365,9 @@ class SimpleActionServer:
         """
         Starts the status loop for the server.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         self.started = True
         self._status_loop_future = asyncio.create_task(self._status_loop())
 
@@ -357,11 +376,17 @@ class SimpleActionServer:
         Stops the status loop for the server, and clears all running goals and all
         goals scheduled to be run.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         self.goal = None
         self.next_goal = None
         self.started = False
 
     def accept_new_goal(self) -> None:
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         if not self.started:
             print(
                 "SIMPLE ACTION SERVER: attempted to accept_new_goal without being started"
@@ -382,46 +407,50 @@ class SimpleActionServer:
 
     def is_new_goal_available(self) -> bool:
         """
-        Whether the next goal of the server is defined.
-
         Returns:
-            bool: Whether the next goal is not ``None``.
+            bool: Whether the next goal is defined, or not ``None``.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         return self.next_goal is not None
 
     def is_preempt_requested(self) -> bool:
         """
-        Whether the goal has been requested to be cancelled, and there is both
-        a goal currently running and a goal scheduled to be run shortly.
-
         Returns:
-            bool
+            bool: Whether the goal has been requested to be cancelled, and there is both
+            a goal currently running and a goal scheduled to be run shortly.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         return bool(self.goal) if self.next_goal else self.is_cancel_requested()
 
     def is_cancel_requested(self) -> bool:
         """
-        Whether a goal is currently active and a cancel has been requested.
-
         Returns:
-            bool
+            bool: Whether a goal is currently active and a cancel has been requested.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         return self.goal is not None and self.cancel_requested
 
     def is_active(self) -> bool:
         """
-        Returns whether there is an active goal running.
-
         Returns:
-            bool
+            bool: Returns whether there is an active goal running.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         return self.goal is not None
 
     def _set_result(
         self,
         status: int = GoalStatus.SUCCEEDED,
         text: str = "",
-        result: genpy.Message | None = None,
+        result: types.Result | None = None,
     ) -> None:
         if not self.started:
             print("SimpleActionServer: attempted to set_succeeded before starting")
@@ -439,9 +468,7 @@ class SimpleActionServer:
         self._result_pub.publish(result_msg)
         self.goal = None
 
-    def set_succeeded(
-        self, result: genpy.Message | None = None, text: str = ""
-    ) -> None:
+    def set_succeeded(self, result: types.Result | None = None, text: str = "") -> None:
         """
         Sets the status of the current goal to be succeeded.
 
@@ -449,9 +476,12 @@ class SimpleActionServer:
             result (Optional[genpy.Message]): The message to attach in the result.
             text (str): The text to set in the result. Defaults to an empty string.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         self._set_result(status=GoalStatus.SUCCEEDED, text=text, result=result)
 
-    def set_aborted(self, result: genpy.Message | None = None, text: str = "") -> None:
+    def set_aborted(self, result: types.Result | None = None, text: str = "") -> None:
         """
         Sets the status of the current goal to aborted.
 
@@ -459,11 +489,12 @@ class SimpleActionServer:
             result (Optional[genpy.Message]): The message to attach in the result.
             text (str): The text to set in the result. Defaults to an empty string.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         self._set_result(status=GoalStatus.ABORTED, text=text, result=result)
 
-    def set_preempted(
-        self, result: genpy.Message | None = None, text: str = ""
-    ) -> None:
+    def set_preempted(self, result: types.Result | None = None, text: str = "") -> None:
         """
         Sets the status of the current goal to preempted.
 
@@ -471,9 +502,12 @@ class SimpleActionServer:
             result (Optional[genpy.Message]): The message to attach in the result.
             text (str): The text to set in the result. Defaults to an empty string.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         self._set_result(status=GoalStatus.PREEMPTED, text=text, result=result)
 
-    def publish_feedback(self, feedback: genpy.Message | None = None) -> None:
+    def publish_feedback(self, feedback: types.Feedback | None = None) -> None:
         """
         Publishes a feedback message onto the feedback topic.
 
@@ -481,6 +515,9 @@ class SimpleActionServer:
             feedback (Optional[genpy.Message]): The optional feedback message to add
                 to the sent message.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         if not self.started:
             print("SimpleActionServer: attempted to publish_feedback before starting")
             return
@@ -581,7 +618,23 @@ class SimpleActionServer:
 
 
 class ActionClient:
-    def __init__(self, node_handle: NodeHandle, name: str, action_type: type[types.ActionMessage]):
+    """
+    Representation of an action client in txros. This works in conjunction with
+    the :class:`~.SimpleActionServer` by sending the servers goals to execute.
+    In response, the client receives feedback updates and the final result of the goal,
+    which it can handle by itself.
+    """
+
+    def __init__(
+        self, node_handle: NodeHandle, name: str, action_type: type[types.Action]
+    ):
+        """
+        Args:
+            node_handle (txros.NodeHandle): Node handle used to power the action client.
+            name (str): The name of the action client.
+            action_type (type[genpy.Message]): The action message type used by the
+                action client and server.
+        """
         self._node_handle = node_handle
         self._name = name
         self._type = action_type
@@ -604,8 +657,13 @@ class ActionClient:
         self._feedback_sub = self._node_handle.subscribe(
             self._name + "/feedback", self._feedback_type, self._feedback_callback
         )
+        self._is_running = False
 
     async def setup(self):
+        """
+        Sets up the action client. This must be called before the action client
+        can be used.
+        """
         await asyncio.gather(
             self._goal_pub.setup(),
             self._cancel_pub.setup(),
@@ -613,8 +671,13 @@ class ActionClient:
             self._result_sub.setup(),
             self._feedback_sub.setup(),
         )
+        self._is_running = True
 
     async def shutdown(self):
+        """
+        Shuts down the action client. This should always be called when the action
+        client is no longer needed.
+        """
         await asyncio.gather(
             self._goal_pub.shutdown(),
             self._cancel_pub.shutdown(),
@@ -622,6 +685,13 @@ class ActionClient:
             self._result_sub.shutdown(),
             self._feedback_sub.shutdown(),
         )
+        self._is_running = False
+
+    def is_running(self) -> bool:
+        return self._is_running
+
+    def __str__(self) -> str:
+        return f"<txros.ActionClient at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} node_handle={self._node_handle}>"
 
     def _status_callback(self, msg: GoalStatusArray):
         for status in msg.status_list:
@@ -639,20 +709,36 @@ class ActionClient:
             manager = self._goal_managers[msg.status.goal_id.id]
             manager._feedback_callback(msg.status.status, msg.feedback)
 
-    def send_goal(self, goal: Goal) -> GoalManager:
+    def send_goal(self, goal: types.Goal) -> GoalManager:
         """
-        Sends a goal to a goal manager.
+        Sends a goal to a goal manager. The goal manager is responsible for the
+        communication between the action client and server; it assists in this process
+        by maintaining individual :class:`asyncio.Future` objects.
+
+        Raises:
+            NotSetup: The action client has not been :meth:`~.setup`, or was previously
+                :meth:`~.shutdown`.
 
         Returns:
             GoalManager: The manager of the goal.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         return GoalManager(self, goal)
 
     def cancel_all_goals(self) -> None:
         """
         Sends a message to the mission cancellation topic requesting all goals to
         be cancelled.
+
+        Raises:
+            NotSetup: The action client has not been :meth:`~.setup`, or was previously
+                :meth:`~.shutdown`.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         self._cancel_pub.publish(
             GoalID(
                 stamp=genpy.Time(0, 0),
@@ -667,6 +753,9 @@ class ActionClient:
         Args:
             time: The time to reference when selecting which goals to cancel.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         self._cancel_pub.publish(
             GoalID(
                 stamp=time,
@@ -679,6 +768,9 @@ class ActionClient:
         Waits for a server connection. When at least one connection is received,
         the function terminates.
         """
+        if not self.is_running():
+            raise NotSetup(self, self._node_handle)
+
         while not (
             set(self._goal_pub.get_connections())
             & set(self._cancel_pub.get_connections())

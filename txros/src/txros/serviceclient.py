@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import asyncio
 from io import BytesIO
-from typing import TYPE_CHECKING, Protocol, Type, Callable, TypeVar, Generic
+from typing import TYPE_CHECKING, Callable, Generic, Protocol, Type, TypeVar
 
 import genpy
 
-from . import rosxmlrpc, tcpros, util, types
+from . import rosxmlrpc, tcpros, types, util
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
 
-S = TypeVar('S', bound = types.ServiceMessage)
+S = TypeVar("S", bound=types.ServiceMessage)
 
 
 class ServiceType(Protocol):
@@ -50,15 +50,17 @@ class ServiceError(Exception):
 
 class ServiceClient(Generic[S]):
     """
-    A client connected to a service in txROS.
+    A client connected to a service in txROS. This is the client class of the
+    client-server relationship in ROS; the server is the :class:`txros.Service`
+    class.
 
     .. container:: operations
 
-        .. describe:: x(request_class)
+        .. describe:: await x(request_class)
 
             Makes a request to the service using an instance of the ``request_class``
-            request type. This operation returns a Deferred containing the result
-            sent by the topic through the master server. Any errors will raise an
+            request type. This operation returns the result sent by the topic
+            through the master server. Any errors will raise an
             instance of :class:`txros.ServiceError`.
     """
 
@@ -73,6 +75,11 @@ class ServiceClient(Generic[S]):
         self._type = service_type
 
     async def __call__(self, req: genpy.Message):
+        if req.__class__ != self._type._request_class:
+            raise TypeError(
+                f"Expected {self._type._request_class} message type when calling {self._name} service, but got {req.__class__} instead."
+            )
+
         service_url = await self._node_handle.master_proxy.lookup_service(self._name)
 
         protocol, rest = service_url.split("://", 1)
@@ -82,9 +89,7 @@ class ServiceClient(Generic[S]):
         assert protocol == "rosrpc"
 
         loop = asyncio.get_event_loop()
-        reader, writer = await asyncio.open_connection(
-            host, port
-        )
+        reader, writer = await asyncio.open_connection(host, port)
         try:
             tcpros.send_string(
                 tcpros.serialize_dict(
@@ -95,7 +100,7 @@ class ServiceClient(Generic[S]):
                         type=self._type._type,
                     )
                 ),
-                writer
+                writer,
             )
 
             tcpros.deserialize_dict((await tcpros.receive_string(reader)))
@@ -109,7 +114,7 @@ class ServiceClient(Generic[S]):
             result = await tcpros.receive_byte(reader)
             data = await tcpros.receive_string(reader)
             if result:  # success
-                return (self._type._response_class().deserialize(data))
+                return self._type._response_class().deserialize(data)
             else:
                 raise ServiceError(data.decode())
         finally:

@@ -9,12 +9,14 @@ neighbors in client code. Classes in this module are generally not inherited fro
 for extensions.
 """
 from .action import ActionClient, Goal, GoalManager, SimpleActionServer
+from .exceptions import NotSetup, TxrosException
 from .nodehandle import NodeHandle
 from .publisher import Publisher
 from .rosxmlrpc import (
     AsyncioTransport,
     AsyncServerProxy,
-    ROSMasterException,
+    ROSMasterError,
+    ROSMasterFailure,
     ROSMasterProxy,
     XMLRPCException,
     XMLRPCLegalType,
