@@ -46,11 +46,28 @@ S = TypeVar("S", bound=types.ServiceMessage)
 
 
 class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
+    """
+    This class implements the ROS slave API for a node handle created with txros.
+    Each method beginning with "rpc_" can be called by another process, such as
+    another ROS node or ROS itself, through XMLRPC. The name following "rpc_" is
+    the XMLRPC method name needed to execute the function.
+
+    For more information on the ROS Slave API, please see http://wiki.ros.org/ROS/Slave_API.
+    """
+
+    # pylint: disable=invalid-name,no-self-use,missing-function-docstring
+    #     invalid-name: method name must begin with rpc and use camel case
+    #     no-self-use: this is okay; these methods must be a part of this class
+    #                  to respond to incoming XMLRPC requests
+    #     missing-function-docstring: below methods are documented in the Slave API
+    #                                 linked above
 
     node_handle: NodeHandle
+    background_tasks: set[asyncio.Future]
 
     def __init__(self, request: web.Request, *, node_handle: NodeHandle):
         self.node_handle = node_handle
+        self.background_tasks = set()
         super().__init__(request)
 
     def __getattr__(self, attr: str):
@@ -69,7 +86,9 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
         return 1, "success", self.node_handle.master_uri
 
     async def rpc_shutdown(self, _, msg: str = ""):
-        print(f"Shutdown of {self.node_handle._name} node requested. Reason: {msg}")
+        print(
+            f"Shutdown of {self.node_handle.get_name()} node requested. Reason: {msg}"
+        )
         try:
             await util.wrap_timeout(
                 self.node_handle.shutdown(shutdown_servers=False), 3
@@ -79,27 +98,32 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
 
         async def _kill_soon():
             await self.node_handle.shutdown_servers()
-            print(f"Shut down of {self.node_handle._name} node complete.")
+            print(f"Shut down of {self.node_handle.get_name()} node complete.")
             sys.exit(0)
 
-        self.my_task = asyncio.create_task(_kill_soon())
+        task = asyncio.create_task(_kill_soon())
         # Get exception so the loop doesn't print it out later when the program
         # has completed.
-        self.my_task.add_done_callback(lambda t: t.exception())
+        task.add_done_callback(lambda t: t.exception())
+        task.add_done_callback(self.background_tasks.remove)
+        self.background_tasks.add(task)
         return (1, "success", False)
 
     def rpc_getPid(self, _) -> tuple[int, str, int]:
         return 1, "success", os.getpid()
 
     def rpc_getSubscriptions(self, _) -> tuple[int, str, list[Any]]:
-        return 1, "success", []  # XXX
+        # This does not appear to be of importance - ROS appears to track this itself
+        return 1, "success", []
 
     def rpc_getPublications(self, _) -> tuple[int, str, list[Any]]:
-        return 1, "success", []  # XXX
+        # This does not appear to be of importance - ROS appears to track this itself
+        return 1, "success", []
 
     def rpc_paramUpdate(self, parameter_key, parameter_value) -> tuple[int, str, bool]:
+        # This behavior is not utilized by any txros-constructed nodes
         del parameter_key, parameter_value
-        return 1, "success", False  # XXX
+        return 1, "success", False
 
     def rpc_publisherUpdate(self, _, topic: str, publishers):
         return self.node_handle.xmlrpc_handlers.get(
@@ -156,6 +180,11 @@ class NodeHandle:
         xmlrpc_handlers (dict[tuple[str, str], Callable[[Any], tuple[int, str, Any]]]): The
             handlers for incoming XMLRPC connections. Acts similar to :attr:`~.tcpros_handlers`.
     """
+
+    # pylint: disable=too-many-public-methods
+    #     too-many-public-methods: while we could move methods out of this class,
+    #                              that would reduce the simplicity of the class
+    #                              as well as its similarity to ROS
 
     master_uri: str
     _ns: str
@@ -218,39 +247,32 @@ class NodeHandle:
 
         name = default_name
         if anonymous:
-            name = name + "_" + "{:016x}".format(random.randrange(2**64))
+            name = f"{name}_{random.randrange(2**62):016x}"
         if "__name" in remappings and not always_default_name:
             name = remappings["__name"]
 
         addr = socket.gethostname()  # could be a bit smarter
-        if "ROS_IP" in os.environ:
-            addr = os.environ["ROS_IP"]
-        if "ROS_HOSTNAME" in os.environ:
-            addr = os.environ["ROS_HOSTNAME"]
-        if "__ip" in remappings:
-            addr = remappings["__ip"]
-        if "__hostname" in remappings:
-            addr = remappings["__hostname"]
+        addr = os.environ.get("ROS_IP", addr)
+        addr = os.environ.get("ROS_HOSTNAME", addr)
+        addr = remappings.get("__ip", addr)
+        addr = remappings.get("__hostname", addr)
 
         master_uri = None
-        if "ROS_MASTER_URI" in os.environ:
-            master_uri = os.environ["ROS_MASTER_URI"]
-        if "__master" in remappings:
-            master_uri = remappings["__master"]
+        master_uri = os.environ.get("ROS_MASTER_URI", master_uri)
+        master_uri = remappings.get("__master", master_uri)
         if master_uri is None:
             raise ValueError(
-                "either ROS_MASTER_URI variable or __master argument has to be provided"
+                "Either ROS_MASTER_URI variable or __master has to "
+                "be provided for node to connect to ROS."
             )
 
-        ns = ""
-        if "ROS_NAMESPACE" in os.environ:
-            ns = os.environ["ROS_NAMESPACE"]
-        if "__ns" in remappings:
-            ns = remappings["__ns"]
+        namespace = ""
+        namespace = os.environ.get("ROS_NAMESPACE", namespace)
+        namespace = remappings.get("__ns", namespace)
 
         return (
             cls(
-                ns=ns,
+                namespace=namespace,
                 name=name,
                 addr=addr,
                 master_uri=master_uri,
@@ -266,11 +288,16 @@ class NodeHandle:
         return (cls.from_argv_with_remaining(*args, **kwargs))[0]
 
     def __init__(
-        self, ns: str, name: str, addr: str, master_uri: str, remappings: dict[str, str]
+        self,
+        namespace: str,
+        name: str,
+        addr: str,
+        master_uri: str,
+        remappings: dict[str, str],
     ):
         """
         Args:
-            ns (str): The namespace to put the node under. The namespace should
+            namespace (str): The namespace to put the node under. The namespace should
                 not end with a `/`. For example, `nsexample/test`.
             name (str): The name of the node itself. The name will be appended behind
                 the namespace.
@@ -279,7 +306,7 @@ class NodeHandle:
             master_uri (str): The URI linking to the ROS master server.
             remappings (dict[str, str]): Any remappings to use in the :meth:`~.setup` method.
         """
-        self._ns = ns
+        self._ns = namespace
         self._name = name
         self._addr = addr
         self.master_uri = master_uri
@@ -288,7 +315,13 @@ class NodeHandle:
         self._is_setting_up = False
 
     def __str__(self) -> str:
-        return f"<txros.NodeHandle at 0x{id(self):0x}, name={self._name} running={self.is_running()} tcpros_uri={getattr(self, '_tcpros_server_uri', None)} xmlrpc_uri={getattr(self, 'xmlrpc_server_uri', None)}>"
+        return (
+            f"<txros.NodeHandle at 0x{id(self):0x}, "
+            f"name={self._name} "
+            f"running={self.is_running()} "
+            f"tcpros_uri={getattr(self, '_tcpros_server_uri', None)} "
+            f"xmlrpc_uri={getattr(self, 'xmlrpc_server_uri', None)}>"
+        )
 
     async def setup(self):
         """
