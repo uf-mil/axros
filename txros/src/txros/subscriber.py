@@ -219,7 +219,7 @@ class Subscriber(Generic[M]):
                         writer,
                     )
                     header = tcpros.deserialize_dict(
-                        (await tcpros.receive_string(reader))
+                        await tcpros.receive_string(reader)
                     )
                     self._connections[writer] = header.get("callerid", None)
                     try:

@@ -42,7 +42,7 @@ class GoalManager:
         self._action_client = action_client
         self._goal = goal
 
-        self._goal_id = "{:016x}".format(random.randrange(2**64))
+        self._goal_id = f"{random.randrange(2**64):016x}"
 
         assert self._goal_id not in self._action_client._goal_managers
         self._action_client._goal_managers[self._goal_id] = self

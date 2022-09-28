@@ -1,12 +1,15 @@
 #! /usr/bin/env python3
-import unittest
 import asyncio
+import time
+import unittest
+
 import rospy
 import rostest
-import time
-import txros
-from rosgraph_msgs.msg import Clock
 from geometry_msgs.msg import Point
+from rosgraph_msgs.msg import Clock
+
+import txros
+
 
 class PubSubTest(unittest.IsolatedAsyncioTestCase):
     """
@@ -16,10 +19,10 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
     nh: txros.NodeHandle
 
     async def asyncSetUp(self):
-        self.nh = txros.NodeHandle.from_argv("basic", always_default_name = True)
+        self.nh = txros.NodeHandle.from_argv("basic", always_default_name=True)
         await self.nh.setup()
 
-        self.pub = self.nh.advertise("clock", Clock, latching = True)
+        self.pub = self.nh.advertise("clock", Clock, latching=True)
         await self.pub.setup()
         self.sub = self.nh.subscribe("clock", Clock)
         await self.sub.setup()
@@ -54,6 +57,7 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.nh.shutdown()
+
 
 if __name__ == "__main__":
     rostest.rosrun("txros", "test_pub_sub", PubSubTest)

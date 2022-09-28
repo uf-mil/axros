@@ -1,13 +1,11 @@
 #!/usr/bin/python3
 
-from __future__ import division
 
 import random
 
 import rospy
+from geometry_msgs.msg import Point, PointStamped
 from std_msgs.msg import Header
-from geometry_msgs.msg import PointStamped, Point
-
 
 rospy.init_node("publish_points")
 

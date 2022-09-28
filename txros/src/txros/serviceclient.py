@@ -43,7 +43,7 @@ class ServiceError(Exception):
         self._message = message
 
     def __str__(self):
-        return "ServiceError(%r)" % (self._message,)
+        return f"ServiceError({self._message!r})"
 
     __repr__ = __str__
 
@@ -103,7 +103,7 @@ class ServiceClient(Generic[S]):
                 writer,
             )
 
-            tcpros.deserialize_dict((await tcpros.receive_string(reader)))
+            tcpros.deserialize_dict(await tcpros.receive_string(reader))
 
             # request could be sent before header is received to reduce latency...
             x = BytesIO()
