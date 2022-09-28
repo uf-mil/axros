@@ -54,6 +54,89 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
     async def test_set_and_get(self):
         await self.nh.set_param("test_param", "test_value")
         self.assertEqual(await self.nh.get_param("test_param"), "test_value")
+        await self.nh.set_param("test_param", "new_test_value")
+        self.assertEqual(await self.nh.get_param("test_param"), "new_test_value")
+
+    async def test_complicated_set(self):
+        await self.nh.set_param("bool", True)
+        self.assertTrue(self.nh.get_param("bool"))
+
+        await self.nh.set_param("int", 3701)
+        self.assertEqual(await self.nh.get_param("int"), 3701)
+
+        await self.nh.set_param("float", 47.44)
+        self.assertEqual(await self.nh.get_param("float"), 47.44)
+
+        await self.nh.set_param("list", ["a", 123, [1, 2, 3], {"what?": "yes!"}])
+        self.assertEqual(
+            await self.nh.get_param("list"), ["a", 123, [1, 2, 3], {"what?": "yes!"}]
+        )
+
+        await self.nh.set_param("tuple", ("a", 123, [1, 2, 3], {"what?": "yes!"}))
+        self.assertEqual(
+            tuple(await self.nh.get_param("tuple")),
+            ("a", 123, [1, 2, 3], {"what?": "yes!"}),
+        )
+
+        await self.nh.set_param("dict", {"bool": True, "str": "MIL", "list": [1, 2, 3]})
+        self.assertEqual(
+            await self.nh.get_param("dict"),
+            {"bool": True, "str": "MIL", "list": [1, 2, 3]},
+        )
+
+        keys = ["bool", "int", "float", "list", "tuple", "dict"]
+        for k in keys:
+            await self.nh.delete_param(k)
+
+    async def test_set_int_range(self):
+        for i in range(0, 32):
+            await self.nh.set_param(f"positive_{i}", 2**i - 1)
+            self.assertEqual(await self.nh.get_param(f"positive_{i}"), 2**i - 1)
+            await self.nh.delete_param(f"positive_{i}")
+
+            await self.nh.set_param(f"negative_{i}", -(2**i - 1))
+            self.assertEqual(await self.nh.get_param(f"negative_{i}"), -(2**i - 1))
+            await self.nh.delete_param(f"negative_{i}")
+
+    async def test_invalid_set(self):
+        with self.assertRaises(TypeError):
+            await self.nh.set_param(2, 1)
+
+        with self.assertRaises(TypeError):
+            await self.nh.set_param({"a": 2}, 1)
+
+        with self.assertRaises(TypeError):
+            await self.nh.set_param(self, 1)
+
+    async def test_invalid_get(self):
+        with self.assertRaises(TypeError):
+            await self.nh.get_param(2)
+
+        with self.assertRaises(TypeError):
+            await self.nh.get_param({"a": 2})
+
+        with self.assertRaises(TypeError):
+            await self.nh.get_param(self)
+
+    async def test_invalid_delete(self):
+        with self.assertRaises(TypeError):
+            await self.nh.delete_param(2)
+
+        with self.assertRaises(TypeError):
+            await self.nh.delete_param({"a": 2})
+
+        with self.assertRaises(TypeError):
+            await self.nh.delete_param(self)
+
+    async def test_invalid_has(self):
+        with self.assertRaises(TypeError):
+            await self.nh.has_param(2)
+
+        with self.assertRaises(TypeError):
+            await self.nh.has_param({"a": 2})
+
+        with self.assertRaises(TypeError):
+            await self.nh.has_param(self)
 
     async def test_set_and_delete(self):
         await self.nh.set_param("test_param_two", "test_value")
@@ -62,9 +145,16 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
             await self.nh.get_param("test_param_two")
         self.assertFalse(await self.nh.has_param("test_param_two"))
 
+    async def test_delete_again(self):
+        await self.nh.set_param("delete_me", 1)
+        await self.nh.delete_param("delete_me")
+        self.assertFalse(await self.nh.has_param("delete_me"))
+        with self.assertRaises(txros.ROSMasterError):
+            await self.nh.delete_param("delete_me")
+
     async def test_set_has(self):
         await self.nh.set_param("test_param_three", "test_value")
-        await self.nh.has_param("test_param_three")
+        self.assertTrue(await self.nh.has_param("test_param_three"))
 
     async def test_param_names(self):
         params = {

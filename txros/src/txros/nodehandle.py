@@ -323,6 +323,44 @@ class NodeHandle:
             f"xmlrpc_uri={getattr(self, 'xmlrpc_server_uri', None)}>"
         )
 
+    async def _setup_xmlrpc_server(self):
+        """
+        Sets up the XMLRPC server for the node.
+        """
+        self.xmlrpc_handlers = {}
+
+        # Start up an HTTP server to handle incoming XMLRPC requests - below is
+        # an alternative to the blocking web.run_app method that is sometimes
+        # used with aiohttp.
+        app = web.Application()
+
+        async def handle_xmlrpc(request: web.Request):
+            slave = _XMLRPCSlave(request, node_handle=self)
+            return await slave.post()
+
+        app.router.add_route("*", "/", handle_xmlrpc)
+
+        self._xmlrpc_runner = web.AppRunner(app)
+        await self._xmlrpc_runner.setup()
+        self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host=self._addr, port=0)
+        await self._xmlrpc_site.start()
+
+        port = self._xmlrpc_site._server.sockets[0].getsockname()[1]  # type: ignore
+
+        self.xmlrpc_server_uri = f"http://{self._addr}:{port}/"
+
+    async def _setup_tcpros_server(self):
+        self.tcpros_handlers = {}
+        self._tcpros_server = await asyncio.start_server(
+            functools.partial(tcpros.callback, self.tcpros_handlers),
+            family=socket.AF_INET,
+            host=self._addr,
+            port=0,
+        )  # Port 0 lets the host assign the port for us
+        tcpros_server_port = self._tcpros_server.sockets[0].getsockname()[1]
+        self._tcpros_server_addr = self._addr, tcpros_server_port
+        self._tcpros_server_uri = f"rosrpc://{self._addr}:{tcpros_server_port}"
+
     async def setup(self):
         """
         Sets up the node handle. This must be called before the node is used.
@@ -350,40 +388,8 @@ class NodeHandle:
             self._name,
         )
 
-        self.xmlrpc_handlers = {}
-
-        # Start up an HTTP server to handle incoming XMLRPC requests - below is
-        # an alternative to the blocking web.run_app method that is sometimes
-        # used with aiohttp.
-        app = web.Application()
-
-        async def handle_xmlrpc(request: web.Request):
-            slave = _XMLRPCSlave(request, node_handle=self)
-            return await slave.post()
-
-        app.router.add_route("*", "/", handle_xmlrpc)
-
-        self._xmlrpc_runner = web.AppRunner(app)
-        await self._xmlrpc_runner.setup()
-        self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host=self._addr, port=0)
-        await self._xmlrpc_site.start()
-
-        # self.shutdown_callbacks.add(self._xmlrpc_runner.cleanup)
-        self.xmlrpc_server_uri = "http://%s:%i/" % (
-            self._addr,
-            self._xmlrpc_site._server.sockets[0].getsockname()[1],
-        )
-
-        self.tcpros_handlers = {}
-        self._tcpros_server = await asyncio.start_server(
-            functools.partial(tcpros.callback, self.tcpros_handlers),
-            family=socket.AF_INET,
-            host=self._addr,
-            port=0,
-        )  # Port 0 lets the host assign the port for us
-        tcpros_server_port = self._tcpros_server.sockets[0].getsockname()[1]
-        self._tcpros_server_addr = self._addr, tcpros_server_port
-        self._tcpros_server_uri = f"rosrpc://{self._addr}:{tcpros_server_port}"
+        await self._setup_xmlrpc_server()
+        await self._setup_tcpros_server()
 
         while True:
             try:
@@ -767,6 +773,7 @@ class NodeHandle:
         Raises:
             txros.ROSMasterException: The parameter is not set.
             NotSetup: The node is not running.
+            TypeError: The key provided is not a string.
 
         Returns:
             :class:`txros.XMLRPCLegalType`: The value of the parameter with the given
@@ -774,6 +781,11 @@ class NodeHandle:
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to get an item from the parameter server must be a string, not {key.__class__.__name__}"
+            )
 
         return await self.master_proxy.getParam(key)
 
@@ -787,12 +799,18 @@ class NodeHandle:
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
+            TypeError: The key provided is not a string.
 
         Returns:
             bool: Whether the parameter server has the specified key.
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to verify an item exists in the parameter server must be a string, not {key.__class__.__name__}"
+            )
 
         return await self.master_proxy.hasParam(key)
 
@@ -805,6 +823,8 @@ class NodeHandle:
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
+            ROSMasterError: The specified key does not exist.
+            TypeError: The key provided is not a string.
 
         Returns:
             int: The result of the delete operation. According to ROS documentation,
@@ -813,11 +833,21 @@ class NodeHandle:
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
 
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to delete an item from the parameter server must be a string, not {key.__class__.__name__}"
+            )
+
         return await self.master_proxy.deleteParam(key)
 
-    async def set_param(self, key: str, value: Any) -> int:
+    async def set_param(self, key: str, value: rosxmlrpc.XMLRPCLegalType) -> int:
         """
         Sets a parameter and value in the ROS parameter server.
+
+        .. note::
+
+            Tuples are stored as lists in the parameter server. All contents remain
+            the same, and the contents of the tuple are stored in the same order.
 
         Args:
             key (str): The parameter to set in the parameter server.
@@ -825,6 +855,7 @@ class NodeHandle:
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
+            TypeError: The key provided is not a string.
 
         Returns:
             int: The result of setting the parameter. According to the ROS documentation,
@@ -832,6 +863,11 @@ class NodeHandle:
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to set an item in the parameter server must be a string, not {key.__class__.__name__}"
+            )
 
         return await self.master_proxy.setParam(key, value)
 
@@ -848,12 +884,18 @@ class NodeHandle:
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
+            TypeError: The key provided is not a string.
 
         Returns:
             str: The name of the first key found.
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to search for an item from the parameter server must be a string, not {key.__class__.__name__}"
+            )
 
         return await self.master_proxy.searchParam(key)
 
