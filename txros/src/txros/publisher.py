@@ -69,6 +69,18 @@ class Publisher(Generic[M]):
         self._node_handle.shutdown_callbacks.add(self.shutdown)
         self._is_running = False
 
+    def __str__(self) -> str:
+        return (
+            f"<txros.Publisher at 0x{id(self):0x}, "
+            f"name={self._name} "
+            f"running={self.is_running()} "
+            f"message_type={self.message_type} "
+            f"latching={self._latching} "
+            f"node_handle={self._node_handle}>"
+        )
+
+    __repr__ = __str__
+
     async def setup(self) -> None:
         """
         Sets up the publisher by registering the name of the publisher with ROS
@@ -77,6 +89,9 @@ class Publisher(Generic[M]):
 
         This should always be called before the publisher is ever used.
         """
+        if self.is_running():
+            raise exceptions.AlreadySetup(self, self._node_handle)
+
         assert ("topic", self._name) not in self._node_handle.tcpros_handlers
         self._node_handle.tcpros_handlers[
             "topic", self._name

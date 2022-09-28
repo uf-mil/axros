@@ -323,6 +323,8 @@ class NodeHandle:
             f"xmlrpc_uri={getattr(self, 'xmlrpc_server_uri', None)}>"
         )
 
+    __repr__ = __str__
+
     async def _setup_xmlrpc_server(self):
         """
         Sets up the XMLRPC server for the node.
@@ -369,6 +371,9 @@ class NodeHandle:
             AssertionError: A condition was not met with the variables supplied
                 to the node in construction.
         """
+        if self.is_running():
+            raise exceptions.AlreadySetup(self, self)
+
         if self._ns:
             assert self._ns[0] == "/"
         assert not self._ns.endswith("/")

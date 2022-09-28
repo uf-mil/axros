@@ -44,3 +44,19 @@ class NotSetup(TxrosException):
             f"Resource has not been setup(), or was previously shutdown(): {resource}",
             node_handle,
         )
+
+
+class AlreadySetup(TxrosException):
+    """
+    Indicates that a resource (such as a :class:`txros.NodeHandle`) was already setup,
+    but ``setup()`` was called again.
+
+    Inherits from :class:`~txros.TxrosException`.
+    """
+
+    def __init__(self, resource: Resource, node_handle: NodeHandle):
+        self.node_handle = node_handle
+        super().__init__(
+            f"Resource was already setup, but setup() was called again: {resource}",
+            node_handle,
+        )

@@ -11,7 +11,7 @@ import genpy
 from actionlib_msgs.msg import GoalID, GoalStatus, GoalStatusArray
 from std_msgs.msg import Header
 
-from txros.exceptions import NotSetup
+from txros.exceptions import AlreadySetup, NotSetup
 
 from . import types, util
 
@@ -285,6 +285,9 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
         Sets up the action server. This must be called before the action server
         can be used.
         """
+        if self.is_running():
+            raise AlreadySetup(self, self._node_handle)
+
         await asyncio.gather(
             self._status_pub.setup(),
             self._result_pub.setup(),
@@ -664,6 +667,9 @@ class ActionClient:
         Sets up the action client. This must be called before the action client
         can be used.
         """
+        if self.is_running():
+            raise AlreadySetup(self, self._node_handle)
+
         await asyncio.gather(
             self._goal_pub.setup(),
             self._cancel_pub.setup(),

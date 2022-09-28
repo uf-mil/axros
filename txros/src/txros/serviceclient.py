@@ -74,6 +74,16 @@ class ServiceClient(Generic[S]):
         self._name = self._node_handle.resolve_name(name)
         self._type = service_type
 
+    def __str__(self) -> str:
+        return (
+            f"<txros.ServiceClient at 0x{id(self):0x}, "
+            f"name={self._name} "
+            f"service_type={self._type} "
+            f"node_handle={self._node_handle}>"
+        )
+
+    __repr__ = __str__
+
     async def __call__(self, req: genpy.Message):
         if req.__class__ != self._type._request_class:
             raise TypeError(

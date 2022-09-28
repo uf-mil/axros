@@ -64,6 +64,17 @@ class Subscriber(Generic[M]):
         self._node_handle.shutdown_callbacks.add(self.shutdown)
         self._is_running = False
 
+    def __str__(self) -> str:
+        return (
+            f"<txros.Subscriber at 0x{id(self):0x}, "
+            f"name={self._name} "
+            f"running={self.is_running()} "
+            f"message_type={self.message_type} "
+            f"node_handle={self._node_handle}>"
+        )
+
+    __repr__ = __str__
+
     async def setup(self) -> None:
         """
         Sets up the subscriber by registering the subscriber with ROS and listing
@@ -71,6 +82,9 @@ class Subscriber(Generic[M]):
 
         The subscriber must be setup before use.
         """
+        if self.is_running():
+            raise exceptions.AlreadySetup(self, self._node_handle)
+
         assert (
             "publisherUpdate",
             self._name,
@@ -237,6 +251,7 @@ class Subscriber(Generic[M]):
                             old, self._message_futs = self._message_futs, []
                             for fut in old:
                                 fut.set_result(msg)
+                            await asyncio.sleep(0)
                     except (
                         ConnectionRefusedError,
                         BrokenPipeError,
