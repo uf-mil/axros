@@ -59,7 +59,7 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_complicated_set(self):
         await self.nh.set_param("bool", True)
-        self.assertTrue(self.nh.get_param("bool"))
+        self.assertTrue(await self.nh.get_param("bool"))
 
         await self.nh.set_param("int", 3701)
         self.assertEqual(await self.nh.get_param("int"), 3701)

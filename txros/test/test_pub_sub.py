@@ -3,11 +3,15 @@ import asyncio
 import time
 import unittest
 
+import cv2
+import numpy as np
 import rospy
 import rostest
 import uvloop
+from cv_bridge import CvBridge
 from geometry_msgs.msg import Point
 from rosgraph_msgs.msg import Clock
+from sensor_msgs.msg import Image
 from std_msgs.msg import Int16
 
 import txros
@@ -15,10 +19,25 @@ import txros
 
 async def publish_task(pub: txros.Publisher):
     try:
-        print("awaiting...")
         await asyncio.sleep(2)  # Let sub get setup
-        for i in range(-10000, 10000):
+        for i in range(0, 20000):
             pub.publish(Int16(i))
+            await asyncio.sleep(0)
+        return True
+    except:
+        import traceback
+
+        traceback.print_exc()
+
+
+async def publish_task_large(pub: txros.Publisher):
+    try:
+        await asyncio.sleep(2)  # Let sub get setup
+        bridge = CvBridge()
+        for i in range(0, 20000):
+            new_img = np.zeros((100, 100, 3))
+            img_msg = bridge.cv2_to_imgmsg(new_img)
+            pub.publish(img_msg)
             await asyncio.sleep(0)
         return True
     except:
@@ -82,12 +101,27 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
             count += 1
 
         pub = self.nh.advertise("count_test", Int16, latching=True)
-        await pub.setup()
         sub = self.nh.subscribe("count_test", Int16, add_one)
-        async with sub:
+        async with pub, sub:
             task = asyncio.create_task(publish_task(pub))
             await task
-        await pub.shutdown()
+        self.assertEqual(count, 20000)
+
+    async def test_high_rate_large(self):
+        count = 0
+
+        def add_one(msg):
+            nonlocal count
+            count += 1
+
+        pub = self.nh.advertise("img_test", Image, latching=True)
+        sub = self.nh.subscribe("img_test", Image, add_one)
+        async with pub, sub:
+            task = asyncio.create_task(publish_task_large(pub))
+            await task
+            while sub.recently_read():
+                await asyncio.sleep(0.1)
+        self.assertEqual(count, 20000)
 
     async def asyncTearDown(self):
         await self.nh.shutdown()
