@@ -63,7 +63,7 @@ def send_byte(byte: bytes, writer: asyncio.StreamWriter) -> None:
 
 
 async def callback(
-    tcpros_handlers: dict[tuple[str, str], types.TCPROSProtocol],
+    tcpros_handlers: dict[tuple[str, str], list[types.TCPROSProtocol]],
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ):
@@ -80,13 +80,20 @@ async def callback(
             writer.close()
 
         if "service" in header:
-            await tcpros_handlers.get(("service", header["service"]), default)(
-                header, reader, writer
-            )
+            handlers = tcpros_handlers.get(("service", header["service"]))
+            if not handlers:
+                await default(header, reader, writer)
+            else:
+                for handler in handlers:
+                    await handler(header, reader, writer)
+
         elif "topic" in header:
-            await tcpros_handlers.get(("topic", header["topic"]), default)(
-                header, reader, writer
-            )
+            handlers = tcpros_handlers.get(("topic", header["topic"]))
+            if not handlers:
+                await default(header, reader, writer)
+            else:
+                for handler in handlers:
+                    await handler(header, reader, writer)
         else:
             send_string(
                 serialize_dict(dict(error="no topic or service name detected")), writer

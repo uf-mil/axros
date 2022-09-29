@@ -82,9 +82,9 @@ class Service(Generic[Request, Reply]):
             raise exceptions.AlreadySetup(self, self._node_handle)
 
         assert ("service", self._name) not in self._node_handle.tcpros_handlers
-        self._node_handle.tcpros_handlers[
-            "service", self._name
-        ] = self._handle_tcpros_conn
+        self._node_handle.tcpros_handlers["service", self._name] = [
+            self._handle_tcpros_conn
+        ]
         await self._node_handle.master_proxy.register_service(
             self._name,
             self._node_handle._tcpros_server_uri,

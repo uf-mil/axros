@@ -92,17 +92,23 @@ class Publisher(Generic[M]):
         if self.is_running():
             raise exceptions.AlreadySetup(self, self._node_handle)
 
-        assert ("topic", self._name) not in self._node_handle.tcpros_handlers
-        self._node_handle.tcpros_handlers[
-            "topic", self._name
-        ] = self._handle_tcpros_conn
-        assert (
-            "requestTopic",
-            self._name,
-        ) not in self._node_handle.xmlrpc_handlers
-        self._node_handle.xmlrpc_handlers[
-            "requestTopic", self._name
-        ] = self._handle_requestTopic
+        if ("topic", self._name) in self._node_handle.tcpros_handlers:
+            self._node_handle.tcpros_handlers[("topic", self._name)].append(
+                self._handle_tcpros_conn
+            )
+        else:
+            self._node_handle.tcpros_handlers[("topic", self._name)] = [
+                self._handle_tcpros_conn
+            ]
+
+        if ("requestTopic", self._name) in self._node_handle.xmlrpc_handlers:
+            self._node_handle.xmlrpc_handlers[("requestTopic", self._name)].append(
+                self._handle_requestTopic
+            )
+        else:
+            self._node_handle.xmlrpc_handlers[("requestTopic", self._name)] = [
+                self._handle_requestTopic
+            ]
 
         # Register the publisher with the master ROS node
         await self._node_handle.master_proxy.register_publisher(
@@ -152,8 +158,16 @@ class Publisher(Generic[M]):
             )
         except Exception:
             traceback.print_exc()
-        del self._node_handle.tcpros_handlers["topic", self._name]
-        del self._node_handle.xmlrpc_handlers["requestTopic", self._name]
+
+        handlers = self._node_handle.tcpros_handlers["topic", self._name]
+        handlers.remove(self._handle_tcpros_conn)
+        if not handlers:
+            del self._node_handle.tcpros_handlers["topic", self._name]
+
+        handlers = self._node_handle.xmlrpc_handlers["requestTopic", self._name]
+        handlers.remove(self._handle_requestTopic)
+        if not handlers:
+            del self._node_handle.xmlrpc_handlers["requestTopic", self._name]
 
         self._node_handle.shutdown_callbacks.discard(self.shutdown)
         self._is_running = False

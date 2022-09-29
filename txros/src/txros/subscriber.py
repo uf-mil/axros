@@ -92,13 +92,15 @@ class Subscriber(Generic[M]):
         if self.is_running():
             raise exceptions.AlreadySetup(self, self._node_handle)
 
-        assert (
-            "publisherUpdate",
-            self._name,
-        ) not in self._node_handle.xmlrpc_handlers
-        self._node_handle.xmlrpc_handlers[
-            "publisherUpdate", self._name
-        ] = self._handle_publisher_list
+        if ("publisherUpdate", self._name) in self._node_handle.xmlrpc_handlers:
+            self._node_handle.xmlrpc_handlers[("publisherUpdate", self._name)].append(
+                self._handle_publisher_list
+            )
+        else:
+            self._node_handle.xmlrpc_handlers[("publisherUpdate", self._name)] = [
+                self._handle_publisher_list
+            ]
+
         publishers = await self._node_handle.master_proxy.register_subscriber(
             self._name,
             self.message_type._type,
@@ -155,7 +157,11 @@ class Subscriber(Generic[M]):
             )
         except Exception:
             traceback.print_exc()
-        del self._node_handle.xmlrpc_handlers["publisherUpdate", self._name]
+
+        handlers = self._node_handle.xmlrpc_handlers["publisherUpdate", self._name]
+        handlers.remove(self._handle_publisher_list)
+        if not handlers:
+            del self._node_handle.xmlrpc_handlers["publisherUpdate", self._name]
 
         self._node_handle.shutdown_callbacks.discard(self.shutdown)
         for _, task in self._publisher_threads.items():

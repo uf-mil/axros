@@ -126,15 +126,30 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
         return 1, "success", False
 
     def rpc_publisherUpdate(self, _, topic: str, publishers):
-        return self.node_handle.xmlrpc_handlers.get(
-            ("publisherUpdate", topic), lambda _: (1, "success", True)
-        )(publishers)
+        handlers = self.node_handle.xmlrpc_handlers.get(("publisherUpdate", topic))
+        if not handlers:
+            return 1, "success", True
+
+        for handler in handlers:
+            handler(publishers)
+        return 1, "success", True
 
     def rpc_requestTopic(self, _, topic: str, protocols):
-        return self.node_handle.xmlrpc_handlers.get(
-            ("requestTopic", topic),
-            lambda _: (-1, f"Not a publisher of [{topic}]", []),
-        )(protocols)
+        handlers = self.node_handle.xmlrpc_handlers.get(("requestTopic", topic))
+        if not handlers:
+            return -1, f"Not a publisher of [{topic}]", []
+
+        for handler in handlers:
+            handler(protocols)
+        return (
+            1,
+            "ready on " + self.node_handle._tcpros_server_uri,
+            [
+                "TCPROS",
+                self.node_handle._tcpros_server_addr[0],
+                self.node_handle._tcpros_server_addr[1],
+            ],
+        )
 
 
 class NodeHandle:
@@ -174,7 +189,7 @@ class NodeHandle:
         master_proxy (ROSMasterProxy): The proxy to the ROS Master URI. This is used
             by the node for all communication.
         xmlrpc_server_uri (str): The XMLRPC URI for the node.
-        tcpros_handlers (dict[tuple[str, str], types.TCPROSProtocol]): The handlers
+        tcpros_handlers (dict[tuple[str, str], list[types.TCPROSProtocol]]): The handlers
             for incoming TCPROS connections. This allows the node to route incoming
             connections to the appropriate class.
         xmlrpc_handlers (dict[tuple[str, str], Callable[[Any], tuple[int, str, Any]]]): The
@@ -196,8 +211,8 @@ class NodeHandle:
     _is_running: bool
     master_proxy: rosxmlrpc.ROSMasterProxy
     xmlrpc_server_uri: str
-    tcpros_handlers: dict[tuple[str, str], types.TCPROSProtocol]
-    xmlrpc_handlers: dict[tuple[str, str], Callable[[Any], tuple[int, str, Any]]]
+    tcpros_handlers: dict[tuple[str, str], list[types.TCPROSProtocol]]
+    xmlrpc_handlers: dict[tuple[str, str], list[Callable[[Any], tuple[int, str, Any]]]]
     _tcpros_server: asyncio.Server
     _tcpros_server_addr: tuple[str, int]
     _use_sim_time: bool

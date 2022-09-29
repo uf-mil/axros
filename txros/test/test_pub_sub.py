@@ -121,7 +121,30 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
             await task
             while sub.recently_read():
                 await asyncio.sleep(0.1)
+
         self.assertEqual(count, 20000)
+
+    async def test_sub_twice(self):
+        count, count_again = 0, 0
+
+        def add_one(msg):
+            nonlocal count
+            count += 1
+
+        def add_one_again(msg):
+            nonlocal count_again
+            count_again += 1
+
+        pub = self.nh.advertise("count_test", Int16, latching=True)
+        sub = self.nh.subscribe("count_test", Int16, add_one)
+        sub_again = self.nh.subscribe("count_test", Int16, add_one_again)
+
+        async with pub, sub, sub_again:
+            task = asyncio.create_task(publish_task(pub))
+            await task
+
+        self.assertEqual(count, 20000)
+        self.assertEqual(count_again, 20000)
 
     async def asyncTearDown(self):
         await self.nh.shutdown()
