@@ -99,7 +99,7 @@ async def callback(
                 serialize_dict(dict(error="no topic or service name detected")), writer
             )
             writer.close()
-    except (BrokenPipeError, ConnectionResetError):
+    except (BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
         # If these exceptions are triggered, the client likely disconnected, and
         # there is no need to fulfill their request
         return
