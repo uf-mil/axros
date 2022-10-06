@@ -134,7 +134,7 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
             handler(publishers)
         return 1, "success", True
 
-    def rpc_requestTopic(self, _, topic: str, protocols):
+    def rpc_requestTopic(self, caller_id, topic: str, protocols):
         handlers = self.node_handle.xmlrpc_handlers.get(("requestTopic", topic))
         if not handlers:
             return -1, f"Not a publisher of [{topic}]", []
@@ -375,6 +375,7 @@ class NodeHandle:
             port=0,
         )  # Port 0 lets the host assign the port for us
         tcpros_server_port = self._tcpros_server.sockets[0].getsockname()[1]
+
         self._tcpros_server_addr = self._addr, tcpros_server_port
         self._tcpros_server_uri = f"rosrpc://{self._addr}:{tcpros_server_port}"
 

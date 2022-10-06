@@ -171,3 +171,4 @@ class Service(Generic[Request, Reply]):
             pass
         finally:
             writer.close()
+            await writer.wait_closed()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+import traceback
 from typing import TYPE_CHECKING, Iterator
 
 if TYPE_CHECKING:
@@ -78,6 +79,7 @@ async def callback(
             del header  # In the default case, we don't handle header
             send_string(serialize_dict(dict(error="unhandled connection")), writer)
             writer.close()
+            await writer.wait_closed()
 
         if "service" in header:
             handlers = tcpros_handlers.get(("service", header["service"]))
@@ -99,6 +101,7 @@ async def callback(
                 serialize_dict(dict(error="no topic or service name detected")), writer
             )
             writer.close()
+            await writer.wait_closed()
     except (BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
         # If these exceptions are triggered, the client likely disconnected, and
         # there is no need to fulfill their request
@@ -106,3 +109,6 @@ async def callback(
     except asyncio.CancelledError:
         send_string(serialize_dict(dict(error="shutting down...")), writer)
         writer.close()
+        await writer.wait_closed()
+    except Exception:
+        traceback.print_exc()
