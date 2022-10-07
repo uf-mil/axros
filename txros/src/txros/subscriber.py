@@ -70,6 +70,7 @@ class Subscriber(Generic[M]):
         self._node_handle.shutdown_callbacks.add(self.shutdown)
         self._is_running = False
         self._is_reading = {}
+        self._shutdown_event = asyncio.Event()
 
     def __str__(self) -> str:
         return (
@@ -150,6 +151,19 @@ class Subscriber(Generic[M]):
             )
             warnings.simplefilter("default", ResourceWarning)
             return
+
+        self._shutdown_event.set()
+        orig_time = time.time()
+        while self._connections:
+            await asyncio.sleep(0.1)
+            if time.time() - orig_time > 2:
+                warnings.simplefilter("always", ResourceWarning)
+                warnings.warn(
+                    f"Some connections from the {self._name} subscriber were never closed. This may lead to memory leaks or endless connections.",
+                    ResourceWarning,
+                )
+                warnings.simplefilter("default", ResourceWarning)
+                break
 
         try:
             await self._node_handle.master_proxy.unregisterSubscriber(
@@ -295,7 +309,7 @@ class Subscriber(Generic[M]):
                     )
                     self._connections[writer] = header.get("callerid", None)
                     try:
-                        while True:
+                        while not self._shutdown_event.is_set():
                             data = await tcpros.receive_string(reader)
 
                             msg = self.message_type().deserialize(data)

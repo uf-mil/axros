@@ -6,6 +6,7 @@ All non-private methods can be used throughout client and application code.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Awaitable, TypeVar
 
 import genpy
@@ -60,9 +61,13 @@ async def wrap_timeout(
     return await asyncio.wait_for(asyncio.shield(fut), timeout)
 
 
-async def _print_message_helper(duration: float, description: str):
-    await asyncio.sleep(duration)
-    print(f"{description} is taking a while...")
+async def _print_message_helper(duration: float, description: str) -> bool:
+    try:
+        await asyncio.sleep(duration)
+        print(f"{description} is taking a while...")
+        return True
+    except asyncio.CancelledError:
+        return False
 
 
 async def wrap_time_notice(
@@ -70,6 +75,13 @@ async def wrap_time_notice(
 ) -> T:
     """
     Prints a message if a future is taking longer than the noted duration.
+
+    .. code-block:: python
+
+        >>> await txros.wrap_time_notice(asyncio.sleep(3), 2, "Example task")
+        Example task is taking a while... # printed at 2 seconds
+        Example task succeeded! # printed at 3 seconds
+        >>> await txros.wrap_time_notice(asyncio.sleep(1), 2, "Example task") # nothing is printed
 
     Args:
         fut (:class:`asyncio.Future`): The future object.
@@ -89,5 +101,8 @@ async def wrap_time_notice(
     result = await fut
     task.cancel()
 
-    print(f"{description} succeeded!")
+    with contextlib.suppress(asyncio.CancelledError):
+        if await task:
+            print(f"{description} succeeded!")
+
     return result
