@@ -96,7 +96,7 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
     async def test_high_rate(self):
         count = 0
 
-        def add_one(msg):
+        def add_one(msg: Int16):
             nonlocal count
             count += 1
 
@@ -105,6 +105,8 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
         async with pub, sub:
             task = asyncio.create_task(publish_task(pub))
             await task
+            while sub.recently_read():
+                await asyncio.sleep(0.1)
         self.assertEqual(count, 20000)
 
     async def test_high_rate_large(self):
