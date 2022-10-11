@@ -129,6 +129,7 @@ class ServiceClient(Generic[S]):
                 raise ServiceError(data.decode())
         finally:
             writer.close()
+            await writer.wait_closed()
 
     async def wait_for_service(self):
         """

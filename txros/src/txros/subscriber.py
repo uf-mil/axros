@@ -151,6 +151,9 @@ class Subscriber(Generic[M]):
             warnings.simplefilter("default", ResourceWarning)
             return
 
+        for _, v in self._publisher_threads.items():
+            v.cancel()
+
         try:
             await self._node_handle.master_proxy.unregisterSubscriber(
                 self._name, self._node_handle.xmlrpc_server_uri
@@ -271,6 +274,11 @@ class Subscriber(Generic[M]):
                 _, host, port = value
                 assert isinstance(host, str)
                 assert isinstance(port, int)
+
+                # Note that this line opens a connection to the host + port combo
+                # of the publisher - this connection will NOT be the same as the
+                # node handle's TCP/XMLRPC servers. This will be a randomly assigned
+                # port.
                 reader, writer = await asyncio.open_connection(host, port)
                 try:
                     tcpros.send_string(
@@ -324,6 +332,7 @@ class Subscriber(Generic[M]):
                     pass
                 finally:
                     writer.close()
+                    await writer.wait_closed()
             except (
                 ConnectionRefusedError,
                 BrokenPipeError,

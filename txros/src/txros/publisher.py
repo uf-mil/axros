@@ -68,6 +68,7 @@ class Publisher(Generic[M]):
 
         self._node_handle.shutdown_callbacks.add(self.shutdown)
         self._is_running = False
+        self._shutdown_event = asyncio.Event()
 
     def __str__(self) -> str:
         return (
@@ -136,6 +137,11 @@ class Publisher(Generic[M]):
     ):
         await self.shutdown()
 
+    async def _close_connections(self):
+        self._shutdown_event.set()
+        while self._connections:
+            await asyncio.sleep(0.1)
+
     async def shutdown(self):
         """
         Shuts the publisher down. All operations scheduled by the publisher are cancelled.
@@ -159,15 +165,17 @@ class Publisher(Generic[M]):
         except Exception:
             traceback.print_exc()
 
-        handlers = self._node_handle.tcpros_handlers["topic", self._name]
+        await self._close_connections()
+
+        handlers = self._node_handle.tcpros_handlers[("topic", self._name)]
         handlers.remove(self._handle_tcpros_conn)
         if not handlers:
-            del self._node_handle.tcpros_handlers["topic", self._name]
+            del self._node_handle.tcpros_handlers[("topic", self._name)]
 
-        handlers = self._node_handle.xmlrpc_handlers["requestTopic", self._name]
+        handlers = self._node_handle.xmlrpc_handlers[("requestTopic", self._name)]
         handlers.remove(self._handle_requestTopic)
         if not handlers:
-            del self._node_handle.xmlrpc_handlers["requestTopic", self._name]
+            del self._node_handle.xmlrpc_handlers[("requestTopic", self._name)]
 
         self._node_handle.shutdown_callbacks.discard(self.shutdown)
         self._is_running = False
@@ -216,20 +224,14 @@ class Publisher(Generic[M]):
                 tcpros.send_string(self._last_message_data, writer)
 
             self._connections[writer] = headers["callerid"]
-            try:
-                while True:
-                    print(await tcpros.receive_string(reader))
-            except (asyncio.IncompleteReadError, BrokenPipeError, ConnectionResetError):
-                # These exceptions are likely related to the client exiting, so we
-                # can ignore them
-                pass
-            finally:
-                del self._connections[writer]
+            await self._shutdown_event.wait()
         except (asyncio.IncompleteReadError, BrokenPipeError, ConnectionResetError):
             # Exceptions related to client exiting - ignore
             pass
         finally:
+            del self._connections[writer]
             writer.close()
+            await writer.wait_closed()
 
     def publish(self, msg: M) -> None:
         """
