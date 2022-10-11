@@ -251,9 +251,9 @@ class Publisher(Generic[M]):
         if not self.is_running():
             raise exceptions.NotSetup(self, self._node_handle)
 
-        x = BytesIO()
-        self.message_type.serialize(msg, x)
-        data = x.getvalue()
+        buff = BytesIO()
+        msg.serialize(buff)
+        data = buff.getvalue()
 
         for conn in self._connections:
             tcpros.send_string(data, conn)

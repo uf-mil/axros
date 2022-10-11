@@ -39,7 +39,7 @@ class Subscriber(Generic[M]):
         node_handle: NodeHandle,
         name: str,
         message_type: type[M],
-        callback: Callable[[M], M | None] = lambda message: None,
+        callback: Callable[[M], None] = lambda message: None,
     ):
         """
         Args:

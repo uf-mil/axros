@@ -164,7 +164,7 @@ class Service(Generic[Request, Reply]):
                 else:
                     tcpros.send_byte(chr(1).encode(), writer)
                     x = BytesIO()
-                    self._type._response_class.serialize(resp, x)
+                    resp.serialize(x)
                     tcpros.send_string(x.getvalue(), writer)
         except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
             # Usually means that the client has just disconnected

@@ -213,10 +213,10 @@ class NodeHandle:
     xmlrpc_server_uri: str
     tcpros_handlers: dict[tuple[str, str], list[types.TCPROSProtocol]]
     xmlrpc_handlers: dict[tuple[str, str], list[Callable[[Any], tuple[int, str, Any]]]]
-    _tcpros_server: asyncio.Server
+    _tcpros_server: asyncio.AbstractServer
     _tcpros_server_addr: tuple[str, int]
     _use_sim_time: bool
-    _clock_sub: subscriber.Subscriber
+    _clock_sub: subscriber.Subscriber[Clock]
     _remappings: dict[str, str]
     _sim_time: genpy.Time
     _xmlrpc_runner: web.AppRunner
@@ -436,7 +436,7 @@ class NodeHandle:
                 break
 
         try:
-            self._use_sim_time = await self.get_param("/use_sim_time")
+            self._use_sim_time = bool(await self.get_param("/use_sim_time"))
         except rosxmlrpc.ROSMasterError:  # assume that error means not found
             self._use_sim_time = False
 
@@ -725,7 +725,7 @@ class NodeHandle:
         self,
         name: str,
         message_type: type[M],
-        callback: Callable[[M], M | None] = lambda _: None,
+        callback: Callable[[M], None] = lambda _: None,
     ) -> subscriber.Subscriber[M]:
         """
         Creates a subscriber using this node handle. The arguments and keyword
