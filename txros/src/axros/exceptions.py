@@ -14,28 +14,28 @@ if TYPE_CHECKING:
     ]
 
 
-class TxrosException(Exception):
+class AxrosException(Exception):
     """
     Exception related to txROS. Inherits from :class:`Exception`.
 
     Attributes:
-        node_handle (txros.NodeHandle): The node handle which caused the exception.
+        node_handle (axros.NodeHandle): The node handle which caused the exception.
     """
 
     def __init__(self, message: str, node_handle: NodeHandle):
         self.node_handle = node_handle
         super().__init__(
-            f"Exception in txros related to {node_handle._name}: {message}"
+            f"Exception in axros related to {node_handle._name}: {message}"
         )
 
 
-class NotSetup(TxrosException):
+class NotSetup(AxrosException):
     """
-    Indicates that a resource (such as a :class:`txros.NodeHandle`) was not setup,
+    Indicates that a resource (such as a :class:`axros.NodeHandle`) was not setup,
     or was previously shutdown and not setup again. To solve this issue, you will
     likely need to call the class' ``setup()`` method.
 
-    Inherits from :class:`~txros.TxrosException`.
+    Inherits from :class:`~axros.AxrosException`.
     """
 
     def __init__(self, resource: Resource, node_handle: NodeHandle):
@@ -46,12 +46,12 @@ class NotSetup(TxrosException):
         )
 
 
-class AlreadySetup(TxrosException):
+class AlreadySetup(AxrosException):
     """
-    Indicates that a resource (such as a :class:`txros.NodeHandle`) was already setup,
+    Indicates that a resource (such as a :class:`axros.NodeHandle`) was already setup,
     but ``setup()`` was called again.
 
-    Inherits from :class:`~txros.TxrosException`.
+    Inherits from :class:`~axros.AxrosException`.
     """
 
     def __init__(self, resource: Resource, node_handle: NodeHandle):

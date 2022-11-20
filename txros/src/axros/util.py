@@ -37,7 +37,7 @@ async def wrap_timeout(
     do not complete on time can be optionally cancelled.
 
     For an equivalent method that does not raise an exception, see
-    :meth:`txros.wrap_time_notice`.
+    :meth:`axros.wrap_time_notice`.
 
     Args:
         fut (:class:`asyncio.Future` | :class:`coroutine`): The future object to timeout.
@@ -78,10 +78,10 @@ async def wrap_time_notice(
 
     .. code-block:: python
 
-        >>> await txros.wrap_time_notice(asyncio.sleep(3), 2, "Example task")
+        >>> await axros.wrap_time_notice(asyncio.sleep(3), 2, "Example task")
         Example task is taking a while... # printed at 2 seconds
         Example task succeeded! # printed at 3 seconds
-        >>> await txros.wrap_time_notice(asyncio.sleep(1), 2, "Example task") # nothing is printed
+        >>> await axros.wrap_time_notice(asyncio.sleep(1), 2, "Example task") # nothing is printed
 
     Args:
         fut (:class:`asyncio.Future`): The future object.

@@ -1,19 +1,18 @@
 #! /usr/bin/env python3
 import unittest
 
+import axros
 import rostest
 from std_srvs.srv import SetBool, SetBoolRequest, SetBoolResponse
-
-import txros
 
 
 class ServiceTest(unittest.IsolatedAsyncioTestCase):
     """
-    Tests the subscribing and publishing functionality of txros.
+    Tests the subscribing and publishing functionality of axros.
     """
 
     async def test_basic_service(self):
-        nh = txros.NodeHandle.from_argv("basic", always_default_name=True)
+        nh = axros.NodeHandle.from_argv("basic", always_default_name=True)
         await nh.setup()
 
         async def callback(_: SetBoolRequest) -> SetBoolResponse:
@@ -32,7 +31,7 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
         await nh.shutdown()
 
     async def test_service_bad_call(self):
-        nh = txros.NodeHandle.from_argv("basic", always_default_name=True)
+        nh = axros.NodeHandle.from_argv("basic", always_default_name=True)
         with self.assertRaises(TypeError):
             async with nh:
 
@@ -46,5 +45,5 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
 
 
 if __name__ == "__main__":
-    rostest.rosrun("txros", "test_service", ServiceTest)
+    rostest.rosrun("axros", "test_service", ServiceTest)
     unittest.main()

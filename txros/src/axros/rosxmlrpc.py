@@ -13,7 +13,7 @@ from xmlrpc import client
 
 from lxml.etree import XMLParser, fromstring, tostring
 
-from .exceptions import TxrosException
+from .exceptions import AxrosException
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
@@ -86,7 +86,7 @@ class AsyncioTransport(client.Transport):
 class AsyncServerProxy(client.ServerProxy):
     """
     Asynchronous server proxy to a specific server URI using :class:`aiohttp.ClientSession`.
-    This class is used in conjunction with :class:`txros.ROSMasterProxy`.
+    This class is used in conjunction with :class:`axros.ROSMasterProxy`.
 
     Attributes:
         transport (AsyncioTransport): The transports used to facilitate requests.
@@ -106,7 +106,7 @@ class AsyncServerProxy(client.ServerProxy):
         Args:
             uri (str): The URI used to connect to ROS Master. This can often be
                 obtained through ``os.environ["ROS_MASTER_URI"]``.
-            node_handle (txros.NodeHandle): The node handle starting the asynchronous
+            node_handle (axros.NodeHandle): The node handle starting the asynchronous
                 proxy.
             headers (Iterable[tuple[:class:`str`, :class:`str`]]): The specific headers
                 to use for connection.
@@ -156,10 +156,10 @@ class AsyncServerProxy(client.ServerProxy):
         return XMLRPCMethod(self.__request, name)
 
 
-class XMLRPCException(TxrosException):
+class XMLRPCException(AxrosException):
     """
     Represents an error that occurred in the XMLRPC communication. Inherits
-    from :class:`~.TxrosException`.
+    from :class:`~.AxrosException`.
 
     .. container:: operations
 
@@ -200,20 +200,20 @@ class XMLRPCException(TxrosException):
             help_message = f"It appears the node may not be able to find a node publishing the topic it is attempting to listen to. This likely means that the node publishing to the topic has died. Please check the publisher to the topic for issues and restart ROS.\n\nRequest body: {self.request_body}"
 
         super().__init__(
-            f"An error occurred in the XMLRPC communication. The '{self.node_handle._name}' node attempted to call '{method_name}' resulting in an error. For help resolving this exception, please see the txros documentation."
+            f"An error occurred in the XMLRPC communication. The '{self.node_handle._name}' node attempted to call '{method_name}' resulting in an error. For help resolving this exception, please see the axros documentation."
             + (f"\n\n{help_message}" if help_message else ""),
             self.node_handle,
         )
 
 
-class ROSMasterError(TxrosException):
+class ROSMasterError(AxrosException):
     """
     Represents an exception that occurred when attempting to communicate with the
     ROS Master Server. Unlike :class:`~.ROSMasterFailure`, this indicates that the
     request completed, but the returned value is not usable. Similar to a bad request
     HTTP error.
 
-    Inherits from :class:`~.TxrosException`.
+    Inherits from :class:`~.AxrosException`.
 
     Attributes:
         ros_message (:class:`str`): The message from ROS explaining the exception.
@@ -225,14 +225,14 @@ class ROSMasterError(TxrosException):
         super().__init__(f"Request from {node_handle._name}: {message}", node_handle)
 
 
-class ROSMasterFailure(TxrosException):
+class ROSMasterFailure(AxrosException):
     """
     Represents a failure that occurred after a node sent an outgoing XMLRPC request
     to ROS Master. Unlike :class:`~.ROSMasterError`, this indicates that the request
     failed in progress, and did not complete. This may cause side effects visible
     in other ROS services.
 
-    Inherits from :class:`~.TxrosException`.
+    Inherits from :class:`~.AxrosException`.
 
     Attributes:
         ros_message (:class:`str`): The message from ROS explaining the exception.
@@ -260,8 +260,8 @@ class ROSMasterProxy:
     It is not used to receive connections from other ROS services.
 
     Generally, this method should not be used in application-level code, rather helper
-    methods should be called from classes such as :class:`txros.NodeHandle` or
-    :class:`txros.Subscriber`. However, this class may be extended for new applications
+    methods should be called from classes such as :class:`axros.NodeHandle` or
+    :class:`axros.Subscriber`. However, this class may be extended for new applications
     of low-level code.
 
     .. code-block:: python
@@ -284,7 +284,7 @@ class ROSMasterProxy:
 
             Calls the master server with the attribute name representing the name
             of the method to call. The value is returned in a Deferred object.
-            If the status code is not 1, then :class:`txros.Error` is raised.
+            If the status code is not 1, then :class:`axros.Error` is raised.
 
             Raises:
                 :class:`XMLRPCException`: General error in communication. This could
@@ -299,7 +299,7 @@ class ROSMasterProxy:
     def __init__(self, proxy: AsyncServerProxy, caller_id: str):
         """
         Args:
-            proxy (txros.AsyncServerProxy): The proxy representing an XMLRPC connection to the ROS
+            proxy (axros.AsyncServerProxy): The proxy representing an XMLRPC connection to the ROS
                 master server.
             caller_id (str): The ID of the caller in the proxy.
         """

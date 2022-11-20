@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(txros)
+project(axros)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -77,7 +77,7 @@ catkin_python_setup()
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
 #  INCLUDE_DIRS include
-#  LIBRARIES txros
+#  LIBRARIES axros
 #  CATKIN_DEPENDS other_catkin_pkg
 #  DEPENDS system_lib
 )
@@ -91,19 +91,19 @@ catkin_package(
 # include_directories(include)
 
 ## Declare a cpp library
-# add_library(txros
-#   src/${PROJECT_NAME}/txros.cpp
+# add_library(axros
+#   src/${PROJECT_NAME}/axros.cpp
 # )
 
 ## Declare a cpp executable
-# add_executable(txros_node src/txros_node.cpp)
+# add_executable(axros_node src/axros_node.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
-# add_dependencies(txros_node txros_generate_messages_cpp)
+# add_dependencies(axros_node axros_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
-# target_link_libraries(txros_node
+# target_link_libraries(axros_node
 #   ${catkin_LIBRARIES}
 # )
 
@@ -122,7 +122,7 @@ catkin_package(
 # )
 
 ## Mark executables and/or libraries for installation
-# install(TARGETS txros txros_node
+# install(TARGETS axros axros_node
 #   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 #   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 #   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
@@ -147,7 +147,7 @@ catkin_package(
 #############
 
 ## Add gtest based cpp test target and link libraries
-# catkin_add_gtest(${PROJECT_NAME}-test test/test_txros.cpp)
+# catkin_add_gtest(${PROJECT_NAME}-test test/test_axros.cpp)
 # if(TARGET ${PROJECT_NAME}-test)
 #   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
 # endif()
@@ -156,5 +156,5 @@ catkin_package(
 # catkin_add_nosetests(test)
 if(CATKIN_ENABLE_TESTING)
   find_package(rostest REQUIRED)
-  add_rostest(test/txros.test)
+  add_rostest(test/axros.test)
 endif()

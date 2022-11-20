@@ -2,15 +2,14 @@
 
 import asyncio
 
+import axros
 import uvloop
 from geometry_msgs.msg import PointStamped
 from roscpp.srv import GetLoggers, GetLoggersRequest
 
-import txros
-
 
 async def main():
-    nh = await txros.NodeHandle.from_argv("testnode", anonymous=True)
+    nh = await axros.NodeHandle.from_argv("testnode", anonymous=True)
 
     pub = nh.advertise("point2", PointStamped, latching=True)
     await pub.setup()

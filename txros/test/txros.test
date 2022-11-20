@@ -1,6 +1,0 @@
-<launch>
-    <test test-name="test_basic_nodehandle" pkg="txros" type="test_basic_nodehandle.py" time-limit="180.0"/>
-    <test test-name="test_pub_sub" pkg="txros" type="test_pub_sub.py" time-limit="180.0"/>
-    <test test-name="test_service" pkg="txros" type="test_service.py" time-limit="180.0"/>
-    <test test-name="test_action" pkg="txros" type="test_action.py" time-limit="180.0" />
-</launch>

@@ -20,7 +20,7 @@ M = TypeVar("M", bound=types.Message)
 class Subscriber(Generic[M]):
     """
     A subscriber in the txROS suite. This class should usually be made through
-    :meth:`txros.NodeHandle.subscribe`.
+    :meth:`axros.NodeHandle.subscribe`.
 
     .. container:: operations
 
@@ -73,7 +73,7 @@ class Subscriber(Generic[M]):
 
     def __str__(self) -> str:
         return (
-            f"<txros.Subscriber at 0x{id(self):0x}, "
+            f"<axros.Subscriber at 0x{id(self):0x}, "
             f"name={self._name} "
             f"running={self.is_running()} "
             f"message_type={self.message_type} "

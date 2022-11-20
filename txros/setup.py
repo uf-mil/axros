@@ -5,7 +5,7 @@ from setuptools import setup
 
 # fetch values from package.xml
 setup_args = generate_distutils_setup(
-    packages=["txros"],
+    packages=["axros"],
     package_dir={"": "src"},
     requires=[],  # TODO
 )

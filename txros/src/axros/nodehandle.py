@@ -47,7 +47,7 @@ S = TypeVar("S", bound=types.ServiceMessage)
 
 class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
     """
-    This class implements the ROS slave API for a node handle created with txros.
+    This class implements the ROS slave API for a node handle created with axros.
     Each method beginning with "rpc_" can be called by another process, such as
     another ROS node or ROS itself, through XMLRPC. The name following "rpc_" is
     the XMLRPC method name needed to execute the function.
@@ -121,7 +121,7 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
         return 1, "success", []
 
     def rpc_paramUpdate(self, parameter_key, parameter_value) -> tuple[int, str, bool]:
-        # This behavior is not utilized by any txros-constructed nodes
+        # This behavior is not utilized by any axros-constructed nodes
         del parameter_key, parameter_value
         return 1, "success", False
 
@@ -185,7 +185,7 @@ class NodeHandle:
         shutdown_callbacks (set[Callable[[], Coroutine[Any, Any, Any]]]): The callbacks
             that are executed when the a shutdown is requested for the node. This
             allows the node to call the shutdown coroutines of other classes, such
-            as :meth:`txros.Publisher.shutdown` and :meth:`txros.Subscriber.shutdown`.
+            as :meth:`axros.Publisher.shutdown` and :meth:`axros.Subscriber.shutdown`.
         master_proxy (ROSMasterProxy): The proxy to the ROS Master URI. This is used
             by the node for all communication.
         xmlrpc_server_uri (str): The XMLRPC URI for the node.
@@ -331,7 +331,7 @@ class NodeHandle:
 
     def __str__(self) -> str:
         return (
-            f"<txros.NodeHandle at 0x{id(self):0x}, "
+            f"<axros.NodeHandle at 0x{id(self):0x}, "
             f"name={self._name} "
             f"running={self.is_running()} "
             f"tcpros_uri={getattr(self, '_tcpros_server_uri', None)} "
@@ -687,7 +687,7 @@ class NodeHandle:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
-            txros.Service: The given service.
+            axros.Service: The given service.
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
@@ -715,7 +715,7 @@ class NodeHandle:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
-            txros.ServiceClient: The constructed service client.
+            axros.ServiceClient: The constructed service client.
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
@@ -746,7 +746,7 @@ class NodeHandle:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
-            txros.Subscriber: The constructed subscriber.
+            axros.Subscriber: The constructed subscriber.
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
@@ -775,7 +775,7 @@ class NodeHandle:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
 
         Returns:
-            txros.Publisher: The given publisher.
+            axros.Publisher: The given publisher.
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
@@ -792,12 +792,12 @@ class NodeHandle:
             key (str): The name of the parameter to retrieve from the server.
 
         Raises:
-            txros.ROSMasterException: The parameter is not set.
+            axros.ROSMasterException: The parameter is not set.
             NotSetup: The node is not running.
             TypeError: The key provided is not a string.
 
         Returns:
-            :class:`txros.XMLRPCLegalType`: The value of the parameter with the given
+            :class:`axros.XMLRPCLegalType`: The value of the parameter with the given
             name.
         """
         if not self._is_running and not self._is_setting_up:
@@ -872,7 +872,7 @@ class NodeHandle:
 
         Args:
             key (str): The parameter to set in the parameter server.
-            value (:class:`txros.XMLRPCLegalType`): The value to set for the given parameter.
+            value (:class:`axros.XMLRPCLegalType`): The value to set for the given parameter.
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.

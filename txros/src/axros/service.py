@@ -22,7 +22,7 @@ class Service(Generic[Request, Reply]):
     asynchronous callback function, which is expected to return a response message.
 
     This class completes the server aspect of the server-client relationship in
-    ROS. The client class is the :class:`txros.ServiceClient` class - this class
+    ROS. The client class is the :class:`axros.ServiceClient` class - this class
     can be used to call services.
 
     .. container:: operations
@@ -63,7 +63,7 @@ class Service(Generic[Request, Reply]):
 
     def __str__(self) -> str:
         return (
-            f"<txros.Service at 0x{id(self):0x}, "
+            f"<axros.Service at 0x{id(self):0x}, "
             f"name={self._name} "
             f"service_type={self._type} "
             f"running={self._is_running} "

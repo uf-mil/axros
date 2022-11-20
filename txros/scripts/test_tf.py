@@ -3,17 +3,16 @@
 import asyncio
 import traceback
 
+import axros
 import genpy
 import uvloop
-
-import txros
-from txros import txros_tf
+from axros import axros_tf
 
 
 async def main():
-    nh = await txros.NodeHandle.from_argv("test_tf", anonymous=True)
+    nh = await axros.NodeHandle.from_argv("test_tf", anonymous=True)
 
-    tf_listener = txros_tf.TransformListener(nh)
+    tf_listener = axros_tf.TransformListener(nh)
     await tf_listener.setup()
 
     while True:
