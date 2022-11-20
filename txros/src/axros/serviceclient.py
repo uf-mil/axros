@@ -51,7 +51,7 @@ class ServiceError(Exception):
 class ServiceClient(Generic[S]):
     """
     A client connected to a service in txROS. This is the client class of the
-    client-server relationship in ROS; the server is the :class:`txros.Service`
+    client-server relationship in ROS; the server is the :class:`axros.Service`
     class.
 
     .. container:: operations
@@ -61,7 +61,7 @@ class ServiceClient(Generic[S]):
             Makes a request to the service using an instance of the ``request_class``
             request type. This operation returns the result sent by the topic
             through the master server. Any errors will raise an
-            instance of :class:`txros.ServiceError`.
+            instance of :class:`axros.ServiceError`.
     """
 
     def __init__(self, node_handle: NodeHandle, name: str, service_type: S):
@@ -76,7 +76,7 @@ class ServiceClient(Generic[S]):
 
     def __str__(self) -> str:
         return (
-            f"<txros.ServiceClient at 0x{id(self):0x}, "
+            f"<axros.ServiceClient at 0x{id(self):0x}, "
             f"name={self._name} "
             f"service_type={self._type} "
             f"node_handle={self._node_handle}>"

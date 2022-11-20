@@ -7,7 +7,7 @@ from io import BytesIO
 from types import TracebackType
 from typing import TYPE_CHECKING, Generic, TypeVar
 
-from txros import exceptions, tcpros, types
+from axros import exceptions, tcpros, types
 
 if TYPE_CHECKING:
     from .nodehandle import NodeHandle
@@ -18,7 +18,7 @@ M = TypeVar("M", bound=types.Message)
 class Publisher(Generic[M]):
     """
     A Publisher in the txROS suite. Allows for the publishing of messages onto a
-    certain ROS topic. This class should usually be made through :meth:`txros.NodeHandle.advertise`.
+    certain ROS topic. This class should usually be made through :meth:`axros.NodeHandle.advertise`.
 
     Before use, the publisher must be :meth:`~.setup` and after use, it must be
     :meth:`~.shutdown`.
@@ -72,7 +72,7 @@ class Publisher(Generic[M]):
 
     def __str__(self) -> str:
         return (
-            f"<txros.Publisher at 0x{id(self):0x}, "
+            f"<axros.Publisher at 0x{id(self):0x}, "
             f"name={self._name} "
             f"running={self.is_running()} "
             f"message_type={self.message_type} "

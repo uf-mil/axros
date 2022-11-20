@@ -1,6 +1,6 @@
 {
-    "include": ["src/txros/*.py"],
-    "ignore": ["src/txros/txros_tf.py"],
+    "include": ["src/axros/*.py"],
+    "ignore": ["src/axros/axros_tf.py"],
     "pythonVersion": "3.8",
     "pythonPlatform": "Linux",
 }

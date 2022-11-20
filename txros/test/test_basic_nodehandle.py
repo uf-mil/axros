@@ -3,9 +3,8 @@ import time
 import unittest
 from os import WCOREDUMP
 
+import axros
 import rostest
-
-import txros
 
 
 class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
@@ -13,10 +12,10 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
     Tests basic nodehandle functionality.
     """
 
-    nh: txros.NodeHandle
+    nh: axros.NodeHandle
 
     async def asyncSetUp(self):
-        self.nh = txros.NodeHandle.from_argv("basic", always_default_name=True)
+        self.nh = axros.NodeHandle.from_argv("basic", always_default_name=True)
         await self.nh.setup()
 
     async def test_name(self):
@@ -141,7 +140,7 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
     async def test_set_and_delete(self):
         await self.nh.set_param("test_param_two", "test_value")
         await self.nh.delete_param("test_param_two")
-        with self.assertRaises(txros.ROSMasterError):
+        with self.assertRaises(axros.ROSMasterError):
             await self.nh.get_param("test_param_two")
         self.assertFalse(await self.nh.has_param("test_param_two"))
 
@@ -149,7 +148,7 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
         await self.nh.set_param("delete_me", 1)
         await self.nh.delete_param("delete_me")
         self.assertFalse(await self.nh.has_param("delete_me"))
-        with self.assertRaises(txros.ROSMasterError):
+        with self.assertRaises(axros.ROSMasterError):
             await self.nh.delete_param("delete_me")
 
     async def test_set_has(self):
@@ -181,5 +180,5 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
 
 
 if __name__ == "__main__":
-    rostest.rosrun("txros", "test_basic_nodehandle", BasicNodeHandleTest)
+    rostest.rosrun("axros", "test_basic_nodehandle", BasicNodeHandleTest)
     unittest.main()

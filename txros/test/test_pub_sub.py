@@ -3,6 +3,7 @@ import asyncio
 import time
 import unittest
 
+import axros
 import cv2
 import numpy as np
 import rospy
@@ -14,10 +15,8 @@ from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int16
 
-import txros
 
-
-async def publish_task(pub: txros.Publisher):
+async def publish_task(pub: axros.Publisher):
     try:
         await asyncio.sleep(2)  # Let sub get setup
         for i in range(0, 20000):
@@ -30,7 +29,7 @@ async def publish_task(pub: txros.Publisher):
         traceback.print_exc()
 
 
-async def publish_task_large(pub: txros.Publisher):
+async def publish_task_large(pub: axros.Publisher):
     try:
         await asyncio.sleep(2)  # Let sub get setup
         bridge = CvBridge()
@@ -48,16 +47,16 @@ async def publish_task_large(pub: txros.Publisher):
 
 class PubSubTest(unittest.IsolatedAsyncioTestCase):
     """
-    Tests the subscribing and publishing functionality of txros.
+    Tests the subscribing and publishing functionality of axros.
     """
 
-    nh: txros.NodeHandle
+    nh: axros.NodeHandle
 
     async def asyncSetUp(self):
         asyncio.set_event_loop(uvloop.new_event_loop())
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-        self.nh = txros.NodeHandle.from_argv("basic", always_default_name=True)
+        self.nh = axros.NodeHandle.from_argv("basic", always_default_name=True)
         await self.nh.setup()
 
         self.pub = self.nh.advertise("clock", Clock, latching=True)
@@ -153,5 +152,5 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
 
 
 if __name__ == "__main__":
-    rostest.rosrun("txros", "test_pub_sub", PubSubTest)
+    rostest.rosrun("axros", "test_pub_sub", PubSubTest)
     unittest.main()

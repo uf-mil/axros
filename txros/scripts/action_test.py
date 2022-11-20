@@ -3,15 +3,14 @@
 import asyncio
 import random
 
+import axros
 import uvloop
 from actionlib.msg import TestAction, TestGoal
-
-import txros
-from txros import action
+from axros import action
 
 
 async def main():
-    nh = txros.NodeHandle.from_argv("action_test_node", anonymous=True)
+    nh = axros.NodeHandle.from_argv("action_test_node", anonymous=True)
     await nh.setup()
 
     ac = action.ActionClient(nh, "test_action", TestAction)

@@ -9,9 +9,8 @@ from typing import TYPE_CHECKING, Any, Callable, Generic
 
 import genpy
 from actionlib_msgs.msg import GoalID, GoalStatus, GoalStatusArray
+from axros.exceptions import AlreadySetup, NotSetup
 from std_msgs.msg import Header
-
-from txros.exceptions import AlreadySetup, NotSetup
 
 from . import types, util
 
@@ -78,7 +77,7 @@ class GoalManager(Generic[types.Goal, types.Feedback, types.Result]):
             traceback.print_exc()
 
     def __str__(self) -> str:
-        return f"<txros.GoalManager at 0x{id(self):0x}, action_client={self._action_client} goal={self._goal}>"
+        return f"<axros.GoalManager at 0x{id(self):0x}, action_client={self._action_client} goal={self._goal}>"
 
     def _status_callback(self, status):
         del status
@@ -136,7 +135,7 @@ class GoalManager(Generic[types.Goal, types.Feedback, types.Result]):
 
 class Goal(Generic[types.Goal]):
     """
-    Implementation of a goal object in the txros adaptation of the Simple Action
+    Implementation of a goal object in the axros adaptation of the Simple Action
     Server.
 
     .. container:: operations
@@ -178,7 +177,7 @@ class Goal(Generic[types.Goal]):
         return False
 
     def __str__(self) -> str:
-        return f"<txros.Goal at 0x{id(self):0x}, goal={self.goal} status={self.status} status_text={self.status_text}>"
+        return f"<axros.Goal at 0x{id(self):0x}, goal={self.goal} status={self.status} status_text={self.status_text}>"
 
     def status_msg(self) -> GoalStatus:
         """
@@ -356,7 +355,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
         await self.shutdown()
 
     def __str__(self) -> str:
-        return f"<txros.SimpleActionServer at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} started={self.started} goal={self.goal} node_handle={self._node_handle}>"
+        return f"<axros.SimpleActionServer at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} started={self.started} goal={self.goal} node_handle={self._node_handle}>"
 
     def register_goal_callback(self, func: Callable[[], None] | None) -> None:
         self.goal_cb = func
@@ -635,7 +634,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
 
 class ActionClient(Generic[types.Goal, types.Result, types.Feedback]):
     """
-    Representation of an action client in txros. This works in conjunction with
+    Representation of an action client in axros. This works in conjunction with
     the :class:`~.SimpleActionServer` by sending the servers goals to execute.
     In response, the client receives feedback updates and the final result of the goal,
     which it can handle by itself.
@@ -646,7 +645,7 @@ class ActionClient(Generic[types.Goal, types.Result, types.Feedback]):
     ):
         """
         Args:
-            node_handle (txros.NodeHandle): Node handle used to power the action client.
+            node_handle (axros.NodeHandle): Node handle used to power the action client.
             name (str): The name of the action client.
             action_type (type[genpy.Message]): The action message type used by the
                 action client and server.
@@ -710,7 +709,7 @@ class ActionClient(Generic[types.Goal, types.Result, types.Feedback]):
         return self._is_running
 
     def __str__(self) -> str:
-        return f"<txros.ActionClient at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} node_handle={self._node_handle}>"
+        return f"<axros.ActionClient at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} node_handle={self._node_handle}>"
 
     def _status_callback(self, msg: GoalStatusArray):
         for status in msg.status_list:

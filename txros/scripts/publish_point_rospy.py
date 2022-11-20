@@ -16,7 +16,7 @@ while not rospy.is_shutdown():
         PointStamped(
             header=Header(
                 stamp=rospy.Time.now(),
-                frame_id="/txros_demo",
+                frame_id="/axros_demo",
             ),
             point=Point(*[random.gauss(0, 1) for i in range(3)]),
         )
