@@ -1,14 +1,26 @@
-[![Build Status](https://ci.mil.ufl.edu/jenkins/buildStatus/icon?job=txros/txros/master)](https://ci.mil.ufl.edu/jenkins/job/txros/job/txros/job/master/)
+<center>
 
-# txROS
+# `axros`
+_A simplistic Python library for using [`asyncio`](https://docs.python.org/3/library/asyncio.html) with ROS 1_
 
-txROS is an alternative Python client library for ROS (Robot Operating System).
-It seeks to improve on rospy by avoiding threading and providing other,
-potentially more useful interfaces, in addition to callbacks.
-It does this by utilizing the Twisted networking library (including Deferreds and generator-based coroutines).
+</center>
+<hr />
 
-It is a work in progress, and as such, its API is not stable.
+```python
+>>> import axros
+>>> nh = axros.NodeHandle.from_argv("/my_special_node")
+>>> await nh.setup() # or 'with nh:'
+>>> await nh.set_param("my_special_param", 42)
+>>> print(await nh.get_param("my_special_param"))
+42
+>>> from std_msgs.msg import Int32
+>>> pub = await nh.advertise("count", Int32)
+>>> await pub.setup()
+>>> count = 0
+>>> while count < 10:
+...     pub.publish(Int32(count))
+...     count += 1
+>>> await nh.shutdown() # also shutsdown the associated publisher
+```
 
-This repository depends on Twisted, installable with:
-
-    sudo apt-get install python-twisted
+Documentation: https://uf-mil.github.io/docs/reference/axros/index.html
