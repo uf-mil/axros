@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import traceback
 import warnings
 from types import TracebackType
@@ -38,7 +39,7 @@ class Subscriber(Generic[M]):
         node_handle: NodeHandle,
         name: str,
         message_type: type[M],
-        callback: Callable[[M], M | None] = lambda message: None,
+        callback: Callable[[M], None] = lambda message: None,
     ):
         """
         Args:
@@ -49,6 +50,11 @@ class Subscriber(Generic[M]):
             callback (Callable[[genpy.Message], genpy.Message | None]): The callback to use with
                 the subscriber. The callback should receive an instance of the message
                 shared by the topic and return None.
+
+        .. note::
+
+            If you are subscribing to a publisher publishing messages at a very
+            fast rate, you should always use a callback over :meth:`~.get_next_message`.
         """
         self._node_handle = node_handle
         self._name = self._node_handle.resolve_name(name)
@@ -63,6 +69,18 @@ class Subscriber(Generic[M]):
 
         self._node_handle.shutdown_callbacks.add(self.shutdown)
         self._is_running = False
+        self._is_reading = {}
+
+    def __str__(self) -> str:
+        return (
+            f"<txros.Subscriber at 0x{id(self):0x}, "
+            f"name={self._name} "
+            f"running={self.is_running()} "
+            f"message_type={self.message_type} "
+            f"node_handle={self._node_handle}>"
+        )
+
+    __repr__ = __str__
 
     async def setup(self) -> None:
         """
@@ -71,13 +89,18 @@ class Subscriber(Generic[M]):
 
         The subscriber must be setup before use.
         """
-        assert (
-            "publisherUpdate",
-            self._name,
-        ) not in self._node_handle.xmlrpc_handlers
-        self._node_handle.xmlrpc_handlers[
-            "publisherUpdate", self._name
-        ] = self._handle_publisher_list
+        if self.is_running():
+            raise exceptions.AlreadySetup(self, self._node_handle)
+
+        if ("publisherUpdate", self._name) in self._node_handle.xmlrpc_handlers:
+            self._node_handle.xmlrpc_handlers[("publisherUpdate", self._name)].append(
+                self._handle_publisher_list
+            )
+        else:
+            self._node_handle.xmlrpc_handlers[("publisherUpdate", self._name)] = [
+                self._handle_publisher_list
+            ]
+
         publishers = await self._node_handle.master_proxy.register_subscriber(
             self._name,
             self.message_type._type,
@@ -128,13 +151,20 @@ class Subscriber(Generic[M]):
             warnings.simplefilter("default", ResourceWarning)
             return
 
+        for _, v in self._publisher_threads.items():
+            v.cancel()
+
         try:
             await self._node_handle.master_proxy.unregisterSubscriber(
                 self._name, self._node_handle.xmlrpc_server_uri
             )
         except Exception:
             traceback.print_exc()
-        del self._node_handle.xmlrpc_handlers["publisherUpdate", self._name]
+
+        handlers = self._node_handle.xmlrpc_handlers["publisherUpdate", self._name]
+        handlers.remove(self._handle_publisher_list)
+        if not handlers:
+            del self._node_handle.xmlrpc_handlers["publisherUpdate", self._name]
 
         self._node_handle.shutdown_callbacks.discard(self.shutdown)
         for _, task in self._publisher_threads.items():
@@ -164,7 +194,17 @@ class Subscriber(Generic[M]):
 
     def get_next_message(self) -> asyncio.Future[M]:
         """
-        Returns a deferred which will contain the next message.
+        Returns a :class:`~asyncio.Future` which will contain the next message
+        received by the subscriber.
+
+        .. warning::
+
+            This method should not be used to reliably obtain messages from publishers
+            publishing at very high rates. Because of the overhead in setting up
+            futures, this method will likely cause some messages to get lost.
+
+            Instead, you should use a callback with the subscriber - all messages
+            are passed through the callback.
 
         Raises:
             NotSetup: The subscriber was never :meth:`~.setup` or was previously
@@ -192,6 +232,36 @@ class Subscriber(Generic[M]):
         """
         return list(self._connections.values())
 
+    def recently_read(self, *, seconds=1) -> bool:
+        """
+        Whether the subscriber has recently read messages.
+
+        Using this method is helpful when the subscriber may not be fast enough
+        to keep up with all messages published. This method can be used to determine
+        when the subscriber has finished reading queued messages. This is helpful
+        at the end of programs, when a publisher has stopped publishing, but the
+        subscriber has not yet received all messages.
+
+        .. code-block:: python3
+
+            >>> while sub.recently_read():
+            ...     print("Subscriber is still reading messages...")
+            ...     await asyncio.sleep(0.5)
+            >>> print("Subscriber has finished catching up on messages!")
+
+        Args:
+            seconds (float): The number of seconds to wait after receiving a message
+                before claiming that the subscriber is no longer actively reading messages.
+                Defaults to 1 second.
+
+        Returns:
+            bool: Whether the subscriber has recently read messages.
+        """
+        last_message_time = self.get_last_message_time()
+        if last_message_time is not None:
+            return time.time() - last_message_time.to_sec() < seconds
+        return False
+
     async def _publisher_thread(self, url: str) -> None:
         while True:
             try:
@@ -204,6 +274,11 @@ class Subscriber(Generic[M]):
                 _, host, port = value
                 assert isinstance(host, str)
                 assert isinstance(port, int)
+
+                # Note that this line opens a connection to the host + port combo
+                # of the publisher - this connection will NOT be the same as the
+                # node handle's TCP/XMLRPC servers. This will be a randomly assigned
+                # port.
                 reader, writer = await asyncio.open_connection(host, port)
                 try:
                     tcpros.send_string(
@@ -219,12 +294,13 @@ class Subscriber(Generic[M]):
                         writer,
                     )
                     header = tcpros.deserialize_dict(
-                        (await tcpros.receive_string(reader))
+                        await tcpros.receive_string(reader)
                     )
                     self._connections[writer] = header.get("callerid", None)
                     try:
                         while True:
                             data = await tcpros.receive_string(reader)
+
                             msg = self.message_type().deserialize(data)
                             try:
                                 self._callback(msg)
@@ -237,6 +313,7 @@ class Subscriber(Generic[M]):
                             old, self._message_futs = self._message_futs, []
                             for fut in old:
                                 fut.set_result(msg)
+                            await asyncio.sleep(0)
                     except (
                         ConnectionRefusedError,
                         BrokenPipeError,
@@ -255,6 +332,7 @@ class Subscriber(Generic[M]):
                     pass
                 finally:
                     writer.close()
+                    await writer.wait_closed()
             except (
                 ConnectionRefusedError,
                 BrokenPipeError,

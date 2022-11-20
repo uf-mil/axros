@@ -1,11 +1,12 @@
 #!/usr/bin/python3
 
-import uvloop
 import asyncio
-import txros
 
+import uvloop
 from geometry_msgs.msg import PointStamped
 from roscpp.srv import GetLoggers, GetLoggersRequest
+
+import txros
 
 
 async def main():
@@ -42,10 +43,8 @@ async def main():
 
     async def task4():
         print(
-            (
-                nh.get_service_client("/rosout/get_loggers", GetLoggers)(
-                    GetLoggersRequest()
-                )
+            nh.get_service_client("/rosout/get_loggers", GetLoggers)(
+                GetLoggersRequest()
             )
         )
 

@@ -106,7 +106,7 @@ class Transform:
             ],
         )
 
-    def __init__(self, p: List[float], q: List[float]):
+    def __init__(self, p: list[float], q: list[float]):
         self._p = numpy.array(p)
         self._q = numpy.array(q)
         self._q_mat = transformations.quaternion_matrix(self._q)[:3, :3]
@@ -157,7 +157,7 @@ class Transform:
         )
 
     def __str__(self):
-        return "Transform(%r, %r)" % (self._p, self._q)
+        return f"Transform({self._p!r}, {self._q!r})"
 
     __repr__ = __str__
 

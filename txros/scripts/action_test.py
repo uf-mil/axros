@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 
 import asyncio
-import uvloop
 import random
+
+import uvloop
+from actionlib.msg import TestAction, TestGoal
 
 import txros
 from txros import action
-
-from actionlib.msg import TestAction, TestGoal
 
 
 async def main():
@@ -30,6 +30,7 @@ async def main():
         print(f"Result is: {result}")
         await asyncio.sleep(0.1)
     await nh.shutdown()
+
 
 if __name__ == "__main__":
     uvloop.install()

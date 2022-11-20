@@ -1,12 +1,50 @@
 #! /usr/bin/env python3
-import unittest
 import asyncio
+import time
+import unittest
+
+import cv2
+import numpy as np
 import rospy
 import rostest
-import time
-import txros
-from rosgraph_msgs.msg import Clock
+import uvloop
+from cv_bridge import CvBridge
 from geometry_msgs.msg import Point
+from rosgraph_msgs.msg import Clock
+from sensor_msgs.msg import Image
+from std_msgs.msg import Int16
+
+import txros
+
+
+async def publish_task(pub: txros.Publisher):
+    try:
+        await asyncio.sleep(2)  # Let sub get setup
+        for i in range(0, 20000):
+            pub.publish(Int16(i))
+            await asyncio.sleep(0)
+        return True
+    except:
+        import traceback
+
+        traceback.print_exc()
+
+
+async def publish_task_large(pub: txros.Publisher):
+    try:
+        await asyncio.sleep(2)  # Let sub get setup
+        bridge = CvBridge()
+        for i in range(0, 20000):
+            new_img = np.zeros((100, 100, 3))
+            img_msg = bridge.cv2_to_imgmsg(new_img)
+            pub.publish(img_msg)
+            await asyncio.sleep(0)
+        return True
+    except:
+        import traceback
+
+        traceback.print_exc()
+
 
 class PubSubTest(unittest.IsolatedAsyncioTestCase):
     """
@@ -16,10 +54,13 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
     nh: txros.NodeHandle
 
     async def asyncSetUp(self):
-        self.nh = txros.NodeHandle.from_argv("basic", always_default_name = True)
+        asyncio.set_event_loop(uvloop.new_event_loop())
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+        self.nh = txros.NodeHandle.from_argv("basic", always_default_name=True)
         await self.nh.setup()
 
-        self.pub = self.nh.advertise("clock", Clock, latching = True)
+        self.pub = self.nh.advertise("clock", Clock, latching=True)
         await self.pub.setup()
         self.sub = self.nh.subscribe("clock", Clock)
         await self.sub.setup()
@@ -52,8 +93,64 @@ class PubSubTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.pub.is_running())
         self.assertTrue(self.sub.is_running())
 
+    async def test_high_rate(self):
+        count = 0
+
+        def add_one(msg: Int16):
+            nonlocal count
+            count += 1
+
+        pub = self.nh.advertise("count_test", Int16, latching=True)
+        sub = self.nh.subscribe("count_test", Int16, add_one)
+        async with pub, sub:
+            task = asyncio.create_task(publish_task(pub))
+            await task
+            while sub.recently_read():
+                await asyncio.sleep(0.1)
+        self.assertEqual(count, 20000)
+
+    async def test_high_rate_large(self):
+        count = 0
+
+        def add_one(msg):
+            nonlocal count
+            count += 1
+
+        pub = self.nh.advertise("img_test", Image, latching=True)
+        sub = self.nh.subscribe("img_test", Image, add_one)
+        async with pub, sub:
+            task = asyncio.create_task(publish_task_large(pub))
+            await task
+            while sub.recently_read():
+                await asyncio.sleep(0.1)
+
+        self.assertEqual(count, 20000)
+
+    async def test_sub_twice(self):
+        count, count_again = 0, 0
+
+        def add_one(msg):
+            nonlocal count
+            count += 1
+
+        def add_one_again(msg):
+            nonlocal count_again
+            count_again += 1
+
+        pub = self.nh.advertise("count_test", Int16, latching=True)
+        sub = self.nh.subscribe("count_test", Int16, add_one)
+        sub_again = self.nh.subscribe("count_test", Int16, add_one_again)
+
+        async with pub, sub, sub_again:
+            task = asyncio.create_task(publish_task(pub))
+            await task
+
+        self.assertEqual(count, 20000)
+        self.assertEqual(count_again, 20000)
+
     async def asyncTearDown(self):
         await self.nh.shutdown()
+
 
 if __name__ == "__main__":
     rostest.rosrun("txros", "test_pub_sub", PubSubTest)

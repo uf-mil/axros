@@ -1,0 +1,52 @@
+---
+default_language_version:
+  python: python3.8
+
+ci:
+  autofix_prs: false
+  autoupdate_commit_msg: 'Update pre-commit hooks to latest versions'
+  autoupdate_schedule: monthly
+
+repos:
+  - repo: https://github.com/pycqa/isort
+    rev: 5.10.1
+    hooks:
+      - id: isort
+        name: isort (python)
+        args: ['--profile', 'black']
+  - repo: https://github.com/psf/black
+    rev: 22.8.0
+    hooks:
+      - id: black
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v2.37.3
+    hooks:
+      - id: pyupgrade
+        args: [--py38-plus]
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.2.1
+    hooks:
+      - id: codespell
+        args:
+          - --quiet-level=2
+  - repo: https://github.com/tier4/pre-commit-hooks-ros
+    rev: v0.7.1
+    hooks:
+      - id: prettier-launch-xml
+      - id: prettier-package-xml
+      - id: sort-package-xml
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.3.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-executables-have-shebangs
+      - id: check-symlinks
+      - id: debug-statements
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+      - id: no-commit-to-branch
+        args:
+          - --branch=master

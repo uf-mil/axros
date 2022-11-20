@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 
 import rospy
-import txros
 from tf import transformations
+
+import txros
 
 rospy.init_node("publish_tf_rospy")
 

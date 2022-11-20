@@ -5,13 +5,13 @@ import random
 import traceback
 import warnings
 from types import TracebackType
-from typing import TYPE_CHECKING, Callable, Generic
+from typing import TYPE_CHECKING, Any, Callable, Generic
 
 import genpy
 from actionlib_msgs.msg import GoalID, GoalStatus, GoalStatusArray
 from std_msgs.msg import Header
 
-from txros.exceptions import NotSetup
+from txros.exceptions import AlreadySetup, NotSetup
 
 from . import types, util
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .nodehandle import NodeHandle
 
 
-class GoalManager:
+class GoalManager(Generic[types.Goal, types.Feedback, types.Result]):
     """
     Manages the interactions between a specific goal and an action client.
 
@@ -27,12 +27,16 @@ class GoalManager:
     by the :class:`~.ActionClient` to talk to the :class:`~.SimpleActionServer`.
     """
 
-    _action_client: ActionClient
-    _goal: Goal
+    _action_client: ActionClient[types.Goal, types.Feedback, types.Result]
+    _goal: types.Goal
     _goal_id: str
-    _feedback_futs: list[asyncio.Future[types.ActionFeedback]]
+    _feedback_futs: list[asyncio.Future[types.ActionFeedback[types.Feedback]]]
 
-    def __init__(self, action_client: ActionClient, goal: Goal):
+    def __init__(
+        self,
+        action_client: ActionClient[types.Goal, types.Feedback, types.Result],
+        goal: types.Goal,
+    ):
         """
         Args:
             action_client (ActionClient): The txROS action client to use to manage
@@ -42,7 +46,7 @@ class GoalManager:
         self._action_client = action_client
         self._goal = goal
 
-        self._goal_id = "{:016x}".format(random.randrange(2**64))
+        self._goal_id = f"{random.randrange(2**64):016x}"
 
         assert self._goal_id not in self._action_client._goal_managers
         self._action_client._goal_managers[self._goal_id] = self
@@ -79,7 +83,7 @@ class GoalManager:
     def _status_callback(self, status):
         del status
 
-    def _result_callback(self, status, result: types.ActionResult):
+    def _result_callback(self, status, result: types.ActionResult[types.Result]):
         del status
         self.forget()
 
@@ -93,7 +97,7 @@ class GoalManager:
         for fut in old:
             fut.set_result(feedback)
 
-    def get_result(self) -> asyncio.Future[types.ActionResult]:
+    def get_result(self) -> asyncio.Future[types.ActionResult[types.Result]]:
         """
         Gets the result of the goal from the manager.
 
@@ -102,7 +106,7 @@ class GoalManager:
         """
         return self._result_fut
 
-    def get_feedback(self) -> asyncio.Future[types.ActionFeedback]:
+    def get_feedback(self) -> asyncio.Future[types.ActionFeedback[types.Feedback]]:
         """
         Gets the feedback from all feedback :class:`asyncio.Future` objects.
         """
@@ -130,7 +134,7 @@ class GoalManager:
             del self._action_client._goal_managers[self._goal_id]
 
 
-class Goal:
+class Goal(Generic[types.Goal]):
     """
     Implementation of a goal object in the txros adaptation of the Simple Action
     Server.
@@ -149,13 +153,14 @@ class Goal:
         status_text (str): A string representing the status of the goal
     """
 
-    goal: GoalStatus | None  # This needs to be defined
+    goal: types.ActionGoal[types.Goal] | None  # This needs to be defined
+    goal_id: GoalID
     status: int
     status_text: str
 
     def __init__(
         self,
-        goal_msg: GoalStatus,
+        goal_msg: types.ActionGoal[types.Goal],
         status: int = GoalStatus.PENDING,
         status_text: str = "",
     ):
@@ -164,8 +169,9 @@ class Goal:
         self.goal = goal_msg
         self.status = status
         self.status_text = status_text
+        self.goal_id = self.goal.goal_id
 
-    def __eq__(self, rhs: Goal):
+    def __eq__(self, rhs: Any):
         # assert isinstance(self.goal, GoalStatus), f"Value was {type(self.goal)}: {self.goal}"
         if isinstance(self.goal, GoalStatus) and isinstance(rhs.goal, GoalStatus):
             return self.goal.goal_id.id == rhs.goal.goal_id.id
@@ -187,7 +193,7 @@ class Goal:
         # assert isinstance(self.goal, GoalStatus), f"Value was {type(self.goal)}: {self.goal}"
 
         # Assemble message
-        msg.goal_id = self.goal.goal_id
+        msg.goal_id = self.goal.goal_id if self.goal else GoalID()
         msg.status = self.status
         msg.text = self.status_text
         return msg
@@ -231,16 +237,16 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
     # - implement optional callbacks for new goals
     # - ensure headers are correct for each message
 
-    goal: Goal | None
-    next_goal: Goal | None
+    goal: Goal[types.Goal] | None
+    next_goal: Goal[types.Goal] | None
 
     def __init__(
         self,
         node_handle: NodeHandle,
         name: str,
         action_type: type[types.Action[types.Goal, types.Feedback, types.Result]],
-        goal_cb: Callable | None = None,
-        preempt_cb: Callable | None = None,
+        goal_cb: Callable[[], None] | None = None,
+        preempt_cb: Callable[[], None] | None = None,
     ):
         self.started = False
         self._node_handle = node_handle
@@ -285,6 +291,9 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
         Sets up the action server. This must be called before the action server
         can be used.
         """
+        if self.is_running():
+            raise AlreadySetup(self, self._node_handle)
+
         await asyncio.gather(
             self._status_pub.setup(),
             self._result_pub.setup(),
@@ -335,7 +344,9 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
             )
             warnings.simplefilter("default", ResourceWarning)
 
-    async def __aenter__(self) -> SimpleActionServer:
+    async def __aenter__(
+        self,
+    ) -> SimpleActionServer[types.Goal, types.Feedback, types.Result]:
         await self.setup()
         return self
 
@@ -347,7 +358,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
     def __str__(self) -> str:
         return f"<txros.SimpleActionServer at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} started={self.started} goal={self.goal} node_handle={self._node_handle}>"
 
-    def register_goal_callback(self, func: Callable | None) -> None:
+    def register_goal_callback(self, func: Callable[[], None] | None) -> None:
         self.goal_cb = func
 
     def _process_goal_callback(self):
@@ -358,7 +369,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
         if self.preempt_cb:
             self.preempt_cb()
 
-    def register_preempt_callback(self, func: Callable | None) -> None:
+    def register_preempt_callback(self, func: Callable[[], None] | None) -> None:
         self.preempt_cb = func
 
     def start(self) -> None:
@@ -383,7 +394,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
         self.next_goal = None
         self.started = False
 
-    def accept_new_goal(self) -> None:
+    def accept_new_goal(self) -> types.Goal | None:
         if not self.is_running():
             raise NotSetup(self, self._node_handle)
 
@@ -399,10 +410,12 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
         if self.goal:
             self.set_preempted(text="New goal accepted in simple action server")
         self.goal = self.next_goal
+        assert self.goal is not None
         self.cancel_requested = False
         self.next_goal = None
-        self.goal.status = GoalStatus.ACTIVE
+        self.goal.status = GoalStatus.ACTIVE if self.goal else GoalStatus.SUCCEEDED
         self._publish_status()
+        assert self.goal.goal is not None
         return self.goal.goal.goal
 
     def is_new_goal_available(self) -> bool:
@@ -545,7 +558,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
             self._publish_status()
             await self._node_handle.sleep(1.0 / self.status_frequency)
 
-    def _cancel_cb(self, msg):
+    def _cancel_cb(self, msg: GoalID):
         cancel_current = False
         cancel_next = False
         if msg.stamp != genpy.Time():
@@ -560,9 +573,10 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
         elif msg.id != "":
             if self.goal and msg.id == self.goal.goal_id.id:
                 cancel_current = True
-            if self.next_goal and msg.id == self.next_goal.id.id:
+            if self.next_goal and msg.id == self.next_goal.goal_id.id:
                 cancel_next = True
         if cancel_next:
+            assert self.next_goal is not None
             self.next_goal.status = GoalStatus.RECALLED
             self.next_goal.status_text = "Goal canceled"
             result_msg = self._result_type()
@@ -574,7 +588,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
             self.cancel_requested = True
             self._process_preempt_callback()
 
-    def _goal_cb(self, msg: GoalStatus):
+    def _goal_cb(self, msg: types.ActionGoal[types.Goal]) -> None:
         if not self.started:
             return None
         new_goal = Goal(msg)
@@ -590,7 +604,9 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
             new_goal.goal.goal_id.stamp == genpy.Time()
         ):  # If time is not set, replace with current time
             new_goal.goal.goal_id.stamp = now
-        if self.next_goal is not None:  # If another goal is queued, handle conflict
+        if (
+            self.next_goal is not None and self.next_goal.goal is not None
+        ):  # If another goal is queued, handle conflict
             # If next goal is later, rejct new goal
             if new_goal.goal.goal_id.stamp < self.next_goal.goal.goal_id.stamp:
                 new_goal.status = GoalStatus.REJECTED
@@ -617,7 +633,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
             self._process_goal_callback()
 
 
-class ActionClient:
+class ActionClient(Generic[types.Goal, types.Result, types.Feedback]):
     """
     Representation of an action client in txros. This works in conjunction with
     the :class:`~.SimpleActionServer` by sending the servers goals to execute.
@@ -664,6 +680,9 @@ class ActionClient:
         Sets up the action client. This must be called before the action client
         can be used.
         """
+        if self.is_running():
+            raise AlreadySetup(self, self._node_handle)
+
         await asyncio.gather(
             self._goal_pub.setup(),
             self._cancel_pub.setup(),

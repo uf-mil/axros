@@ -43,7 +43,7 @@ class ServiceError(Exception):
         self._message = message
 
     def __str__(self):
-        return "ServiceError(%r)" % (self._message,)
+        return f"ServiceError({self._message!r})"
 
     __repr__ = __str__
 
@@ -74,6 +74,16 @@ class ServiceClient(Generic[S]):
         self._name = self._node_handle.resolve_name(name)
         self._type = service_type
 
+    def __str__(self) -> str:
+        return (
+            f"<txros.ServiceClient at 0x{id(self):0x}, "
+            f"name={self._name} "
+            f"service_type={self._type} "
+            f"node_handle={self._node_handle}>"
+        )
+
+    __repr__ = __str__
+
     async def __call__(self, req: genpy.Message):
         if req.__class__ != self._type._request_class:
             raise TypeError(
@@ -103,7 +113,7 @@ class ServiceClient(Generic[S]):
                 writer,
             )
 
-            tcpros.deserialize_dict((await tcpros.receive_string(reader)))
+            tcpros.deserialize_dict(await tcpros.receive_string(reader))
 
             # request could be sent before header is received to reduce latency...
             x = BytesIO()
@@ -119,6 +129,7 @@ class ServiceClient(Generic[S]):
                 raise ServiceError(data.decode())
         finally:
             writer.close()
+            await writer.wait_closed()
 
     async def wait_for_service(self):
         """

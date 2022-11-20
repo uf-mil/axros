@@ -76,14 +76,32 @@ class ActionGoal(MessageWithHeader, Protocol[Goal], metaclass=ABCMeta):
     goal_id: GoalID
     goal: Goal
 
+    def __init__(
+        self,
+        header: Header | None = None,
+        goal_id: GoalID | None = None,
+        goal: Goal | None = None,
+    ) -> None:
+        ...
+
+
+class HasResult(Protocol[Result]):
+    result: Result
+
 
 @runtime_checkable
-class ActionResult(Message, Protocol[Result], metaclass=ABCMeta):
+class ActionResult(HasResult[Result], MessageWithHeader, Protocol, metaclass=ABCMeta):
     status: GoalStatus
 
 
+class HasFeedback(Protocol[Feedback]):
+    feedback: Feedback
+
+
 @runtime_checkable
-class ActionFeedback(Message, Protocol[Feedback], metaclass=ABCMeta):
+class ActionFeedback(
+    HasFeedback[Feedback], MessageWithHeader, Protocol, metaclass=ABCMeta
+):
     status: GoalStatus
 
 

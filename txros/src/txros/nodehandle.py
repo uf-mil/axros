@@ -46,11 +46,28 @@ S = TypeVar("S", bound=types.ServiceMessage)
 
 
 class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
+    """
+    This class implements the ROS slave API for a node handle created with txros.
+    Each method beginning with "rpc_" can be called by another process, such as
+    another ROS node or ROS itself, through XMLRPC. The name following "rpc_" is
+    the XMLRPC method name needed to execute the function.
+
+    For more information on the ROS Slave API, please see http://wiki.ros.org/ROS/Slave_API.
+    """
+
+    # pylint: disable=invalid-name,no-self-use,missing-function-docstring
+    #     invalid-name: method name must begin with rpc and use camel case
+    #     no-self-use: this is okay; these methods must be a part of this class
+    #                  to respond to incoming XMLRPC requests
+    #     missing-function-docstring: below methods are documented in the Slave API
+    #                                 linked above
 
     node_handle: NodeHandle
+    background_tasks: set[asyncio.Future]
 
     def __init__(self, request: web.Request, *, node_handle: NodeHandle):
         self.node_handle = node_handle
+        self.background_tasks = set()
         super().__init__(request)
 
     def __getattr__(self, attr: str):
@@ -69,7 +86,9 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
         return 1, "success", self.node_handle.master_uri
 
     async def rpc_shutdown(self, _, msg: str = ""):
-        print(f"Shutdown of {self.node_handle._name} node requested. Reason: {msg}")
+        print(
+            f"Shutdown of {self.node_handle.get_name()} node requested. Reason: {msg}"
+        )
         try:
             await util.wrap_timeout(
                 self.node_handle.shutdown(shutdown_servers=False), 3
@@ -79,38 +98,58 @@ class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
 
         async def _kill_soon():
             await self.node_handle.shutdown_servers()
-            print(f"Shut down of {self.node_handle._name} node complete.")
+            print(f"Shut down of {self.node_handle.get_name()} node complete.")
             sys.exit(0)
 
-        self.my_task = asyncio.create_task(_kill_soon())
+        task = asyncio.create_task(_kill_soon())
         # Get exception so the loop doesn't print it out later when the program
         # has completed.
-        self.my_task.add_done_callback(lambda t: t.exception())
+        task.add_done_callback(lambda t: t.exception())
+        task.add_done_callback(self.background_tasks.remove)
+        self.background_tasks.add(task)
         return (1, "success", False)
 
     def rpc_getPid(self, _) -> tuple[int, str, int]:
         return 1, "success", os.getpid()
 
     def rpc_getSubscriptions(self, _) -> tuple[int, str, list[Any]]:
-        return 1, "success", []  # XXX
+        # This does not appear to be of importance - ROS appears to track this itself
+        return 1, "success", []
 
     def rpc_getPublications(self, _) -> tuple[int, str, list[Any]]:
-        return 1, "success", []  # XXX
+        # This does not appear to be of importance - ROS appears to track this itself
+        return 1, "success", []
 
     def rpc_paramUpdate(self, parameter_key, parameter_value) -> tuple[int, str, bool]:
+        # This behavior is not utilized by any txros-constructed nodes
         del parameter_key, parameter_value
-        return 1, "success", False  # XXX
+        return 1, "success", False
 
     def rpc_publisherUpdate(self, _, topic: str, publishers):
-        return self.node_handle.xmlrpc_handlers.get(
-            ("publisherUpdate", topic), lambda _: (1, "success", True)
-        )(publishers)
+        handlers = self.node_handle.xmlrpc_handlers.get(("publisherUpdate", topic))
+        if not handlers:
+            return 1, "success", True
 
-    def rpc_requestTopic(self, _, topic: str, protocols):
-        return self.node_handle.xmlrpc_handlers.get(
-            ("requestTopic", topic),
-            lambda _: (-1, f"Not a publisher of [{topic}]", []),
-        )(protocols)
+        for handler in handlers:
+            handler(publishers)
+        return 1, "success", True
+
+    def rpc_requestTopic(self, caller_id, topic: str, protocols):
+        handlers = self.node_handle.xmlrpc_handlers.get(("requestTopic", topic))
+        if not handlers:
+            return -1, f"Not a publisher of [{topic}]", []
+
+        for handler in handlers:
+            handler(protocols)
+        return (
+            1,
+            "ready on " + self.node_handle._tcpros_server_uri,
+            [
+                "TCPROS",
+                self.node_handle._tcpros_server_addr[0],
+                self.node_handle._tcpros_server_addr[1],
+            ],
+        )
 
 
 class NodeHandle:
@@ -150,12 +189,17 @@ class NodeHandle:
         master_proxy (ROSMasterProxy): The proxy to the ROS Master URI. This is used
             by the node for all communication.
         xmlrpc_server_uri (str): The XMLRPC URI for the node.
-        tcpros_handlers (dict[tuple[str, str], types.TCPROSProtocol]): The handlers
+        tcpros_handlers (dict[tuple[str, str], list[types.TCPROSProtocol]]): The handlers
             for incoming TCPROS connections. This allows the node to route incoming
             connections to the appropriate class.
         xmlrpc_handlers (dict[tuple[str, str], Callable[[Any], tuple[int, str, Any]]]): The
             handlers for incoming XMLRPC connections. Acts similar to :attr:`~.tcpros_handlers`.
     """
+
+    # pylint: disable=too-many-public-methods
+    #     too-many-public-methods: while we could move methods out of this class,
+    #                              that would reduce the simplicity of the class
+    #                              as well as its similarity to ROS
 
     master_uri: str
     _ns: str
@@ -167,12 +211,12 @@ class NodeHandle:
     _is_running: bool
     master_proxy: rosxmlrpc.ROSMasterProxy
     xmlrpc_server_uri: str
-    tcpros_handlers: dict[tuple[str, str], types.TCPROSProtocol]
-    xmlrpc_handlers: dict[tuple[str, str], Callable[[Any], tuple[int, str, Any]]]
-    _tcpros_server: asyncio.Server
+    tcpros_handlers: dict[tuple[str, str], list[types.TCPROSProtocol]]
+    xmlrpc_handlers: dict[tuple[str, str], list[Callable[[Any], tuple[int, str, Any]]]]
+    _tcpros_server: asyncio.AbstractServer
     _tcpros_server_addr: tuple[str, int]
     _use_sim_time: bool
-    _clock_sub: subscriber.Subscriber
+    _clock_sub: subscriber.Subscriber[Clock]
     _remappings: dict[str, str]
     _sim_time: genpy.Time
     _xmlrpc_runner: web.AppRunner
@@ -218,39 +262,32 @@ class NodeHandle:
 
         name = default_name
         if anonymous:
-            name = name + "_" + "{:016x}".format(random.randrange(2**64))
+            name = f"{name}_{random.randrange(2**62):016x}"
         if "__name" in remappings and not always_default_name:
             name = remappings["__name"]
 
         addr = socket.gethostname()  # could be a bit smarter
-        if "ROS_IP" in os.environ:
-            addr = os.environ["ROS_IP"]
-        if "ROS_HOSTNAME" in os.environ:
-            addr = os.environ["ROS_HOSTNAME"]
-        if "__ip" in remappings:
-            addr = remappings["__ip"]
-        if "__hostname" in remappings:
-            addr = remappings["__hostname"]
+        addr = os.environ.get("ROS_IP", addr)
+        addr = os.environ.get("ROS_HOSTNAME", addr)
+        addr = remappings.get("__ip", addr)
+        addr = remappings.get("__hostname", addr)
 
         master_uri = None
-        if "ROS_MASTER_URI" in os.environ:
-            master_uri = os.environ["ROS_MASTER_URI"]
-        if "__master" in remappings:
-            master_uri = remappings["__master"]
+        master_uri = os.environ.get("ROS_MASTER_URI", master_uri)
+        master_uri = remappings.get("__master", master_uri)
         if master_uri is None:
             raise ValueError(
-                "either ROS_MASTER_URI variable or __master argument has to be provided"
+                "Either ROS_MASTER_URI variable or __master has to "
+                "be provided for node to connect to ROS."
             )
 
-        ns = ""
-        if "ROS_NAMESPACE" in os.environ:
-            ns = os.environ["ROS_NAMESPACE"]
-        if "__ns" in remappings:
-            ns = remappings["__ns"]
+        namespace = ""
+        namespace = os.environ.get("ROS_NAMESPACE", namespace)
+        namespace = remappings.get("__ns", namespace)
 
         return (
             cls(
-                ns=ns,
+                namespace=namespace,
                 name=name,
                 addr=addr,
                 master_uri=master_uri,
@@ -266,11 +303,16 @@ class NodeHandle:
         return (cls.from_argv_with_remaining(*args, **kwargs))[0]
 
     def __init__(
-        self, ns: str, name: str, addr: str, master_uri: str, remappings: dict[str, str]
+        self,
+        namespace: str,
+        name: str,
+        addr: str,
+        master_uri: str,
+        remappings: dict[str, str],
     ):
         """
         Args:
-            ns (str): The namespace to put the node under. The namespace should
+            namespace (str): The namespace to put the node under. The namespace should
                 not end with a `/`. For example, `nsexample/test`.
             name (str): The name of the node itself. The name will be appended behind
                 the namespace.
@@ -279,7 +321,7 @@ class NodeHandle:
             master_uri (str): The URI linking to the ROS master server.
             remappings (dict[str, str]): Any remappings to use in the :meth:`~.setup` method.
         """
-        self._ns = ns
+        self._ns = namespace
         self._name = name
         self._addr = addr
         self.master_uri = master_uri
@@ -288,7 +330,54 @@ class NodeHandle:
         self._is_setting_up = False
 
     def __str__(self) -> str:
-        return f"<txros.NodeHandle at 0x{id(self):0x}, name={self._name} running={self.is_running()} tcpros_uri={getattr(self, '_tcpros_server_uri', None)} xmlrpc_uri={getattr(self, 'xmlrpc_server_uri', None)}>"
+        return (
+            f"<txros.NodeHandle at 0x{id(self):0x}, "
+            f"name={self._name} "
+            f"running={self.is_running()} "
+            f"tcpros_uri={getattr(self, '_tcpros_server_uri', None)} "
+            f"xmlrpc_uri={getattr(self, 'xmlrpc_server_uri', None)}>"
+        )
+
+    __repr__ = __str__
+
+    async def _setup_xmlrpc_server(self):
+        """
+        Sets up the XMLRPC server for the node.
+        """
+        self.xmlrpc_handlers = {}
+
+        # Start up an HTTP server to handle incoming XMLRPC requests - below is
+        # an alternative to the blocking web.run_app method that is sometimes
+        # used with aiohttp.
+        app = web.Application()
+
+        async def handle_xmlrpc(request: web.Request):
+            slave = _XMLRPCSlave(request, node_handle=self)
+            return await slave.post()
+
+        app.router.add_route("*", "/", handle_xmlrpc)
+
+        self._xmlrpc_runner = web.AppRunner(app)
+        await self._xmlrpc_runner.setup()
+        self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host=self._addr, port=0)
+        await self._xmlrpc_site.start()
+
+        port = self._xmlrpc_site._server.sockets[0].getsockname()[1]  # type: ignore
+
+        self.xmlrpc_server_uri = f"http://{self._addr}:{port}/"
+
+    async def _setup_tcpros_server(self):
+        self.tcpros_handlers = {}
+        self._tcpros_server = await asyncio.start_server(
+            functools.partial(tcpros.callback, self.tcpros_handlers),
+            family=socket.AF_INET,
+            host=self._addr,
+            port=0,
+        )  # Port 0 lets the host assign the port for us
+        tcpros_server_port = self._tcpros_server.sockets[0].getsockname()[1]
+
+        self._tcpros_server_addr = self._addr, tcpros_server_port
+        self._tcpros_server_uri = f"rosrpc://{self._addr}:{tcpros_server_port}"
 
     async def setup(self):
         """
@@ -298,6 +387,9 @@ class NodeHandle:
             AssertionError: A condition was not met with the variables supplied
                 to the node in construction.
         """
+        if self.is_running():
+            raise exceptions.AlreadySetup(self, self)
+
         if self._ns:
             assert self._ns[0] == "/"
         assert not self._ns.endswith("/")
@@ -317,40 +409,8 @@ class NodeHandle:
             self._name,
         )
 
-        self.xmlrpc_handlers = {}
-
-        # Start up an HTTP server to handle incoming XMLRPC requests - below is
-        # an alternative to the blocking web.run_app method that is sometimes
-        # used with aiohttp.
-        app = web.Application()
-
-        async def handle_xmlrpc(request: web.Request):
-            slave = _XMLRPCSlave(request, node_handle=self)
-            return await slave.post()
-
-        app.router.add_route("*", "/", handle_xmlrpc)
-
-        self._xmlrpc_runner = web.AppRunner(app)
-        await self._xmlrpc_runner.setup()
-        self._xmlrpc_site = web.TCPSite(self._xmlrpc_runner, host=self._addr, port=0)
-        await self._xmlrpc_site.start()
-
-        # self.shutdown_callbacks.add(self._xmlrpc_runner.cleanup)
-        self.xmlrpc_server_uri = "http://%s:%i/" % (
-            self._addr,
-            self._xmlrpc_site._server.sockets[0].getsockname()[1],
-        )
-
-        self.tcpros_handlers = {}
-        self._tcpros_server = await asyncio.start_server(
-            functools.partial(tcpros.callback, self.tcpros_handlers),
-            family=socket.AF_INET,
-            host=self._addr,
-            port=0,
-        )  # Port 0 lets the host assign the port for us
-        tcpros_server_port = self._tcpros_server.sockets[0].getsockname()[1]
-        self._tcpros_server_addr = self._addr, tcpros_server_port
-        self._tcpros_server_uri = f"rosrpc://{self._addr}:{tcpros_server_port}"
+        await self._setup_xmlrpc_server()
+        await self._setup_tcpros_server()
 
         while True:
             try:
@@ -377,7 +437,7 @@ class NodeHandle:
                 break
 
         try:
-            self._use_sim_time = await self.get_param("/use_sim_time")
+            self._use_sim_time = bool(await self.get_param("/use_sim_time"))
         except rosxmlrpc.ROSMasterError:  # assume that error means not found
             self._use_sim_time = False
 
@@ -666,7 +726,7 @@ class NodeHandle:
         self,
         name: str,
         message_type: type[M],
-        callback: Callable[[M], M | None] = lambda _: None,
+        callback: Callable[[M], None] = lambda _: None,
     ) -> subscriber.Subscriber[M]:
         """
         Creates a subscriber using this node handle. The arguments and keyword
@@ -734,6 +794,7 @@ class NodeHandle:
         Raises:
             txros.ROSMasterException: The parameter is not set.
             NotSetup: The node is not running.
+            TypeError: The key provided is not a string.
 
         Returns:
             :class:`txros.XMLRPCLegalType`: The value of the parameter with the given
@@ -741,6 +802,11 @@ class NodeHandle:
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to get an item from the parameter server must be a string, not {key.__class__.__name__}"
+            )
 
         return await self.master_proxy.getParam(key)
 
@@ -754,12 +820,18 @@ class NodeHandle:
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
+            TypeError: The key provided is not a string.
 
         Returns:
             bool: Whether the parameter server has the specified key.
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to verify an item exists in the parameter server must be a string, not {key.__class__.__name__}"
+            )
 
         return await self.master_proxy.hasParam(key)
 
@@ -772,6 +844,8 @@ class NodeHandle:
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
+            ROSMasterError: The specified key does not exist.
+            TypeError: The key provided is not a string.
 
         Returns:
             int: The result of the delete operation. According to ROS documentation,
@@ -780,11 +854,21 @@ class NodeHandle:
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
 
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to delete an item from the parameter server must be a string, not {key.__class__.__name__}"
+            )
+
         return await self.master_proxy.deleteParam(key)
 
-    async def set_param(self, key: str, value: Any) -> int:
+    async def set_param(self, key: str, value: rosxmlrpc.XMLRPCLegalType) -> int:
         """
         Sets a parameter and value in the ROS parameter server.
+
+        .. note::
+
+            Tuples are stored as lists in the parameter server. All contents remain
+            the same, and the contents of the tuple are stored in the same order.
 
         Args:
             key (str): The parameter to set in the parameter server.
@@ -792,6 +876,7 @@ class NodeHandle:
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
+            TypeError: The key provided is not a string.
 
         Returns:
             int: The result of setting the parameter. According to the ROS documentation,
@@ -799,6 +884,11 @@ class NodeHandle:
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to set an item in the parameter server must be a string, not {key.__class__.__name__}"
+            )
 
         return await self.master_proxy.setParam(key, value)
 
@@ -815,12 +905,18 @@ class NodeHandle:
 
         Raises:
             NotSetup: The node is not running. The node likely needs to be :meth:`~.setup`.
+            TypeError: The key provided is not a string.
 
         Returns:
             str: The name of the first key found.
         """
         if not self._is_running and not self._is_setting_up:
             raise exceptions.NotSetup(self, self)
+
+        if not isinstance(key, str):
+            raise TypeError(
+                f"The '{key}' key used to search for an item from the parameter server must be a string, not {key.__class__.__name__}"
+            )
 
         return await self.master_proxy.searchParam(key)
 

@@ -1,10 +1,10 @@
 #!/usr/bin/python3
 
+import asyncio
 import traceback
 
-import uvloop
-import asyncio
 import genpy
+import uvloop
 
 import txros
 from txros import txros_tf

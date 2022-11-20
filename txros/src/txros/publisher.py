@@ -68,6 +68,19 @@ class Publisher(Generic[M]):
 
         self._node_handle.shutdown_callbacks.add(self.shutdown)
         self._is_running = False
+        self._shutdown_event = asyncio.Event()
+
+    def __str__(self) -> str:
+        return (
+            f"<txros.Publisher at 0x{id(self):0x}, "
+            f"name={self._name} "
+            f"running={self.is_running()} "
+            f"message_type={self.message_type} "
+            f"latching={self._latching} "
+            f"node_handle={self._node_handle}>"
+        )
+
+    __repr__ = __str__
 
     async def setup(self) -> None:
         """
@@ -77,17 +90,26 @@ class Publisher(Generic[M]):
 
         This should always be called before the publisher is ever used.
         """
-        assert ("topic", self._name) not in self._node_handle.tcpros_handlers
-        self._node_handle.tcpros_handlers[
-            "topic", self._name
-        ] = self._handle_tcpros_conn
-        assert (
-            "requestTopic",
-            self._name,
-        ) not in self._node_handle.xmlrpc_handlers
-        self._node_handle.xmlrpc_handlers[
-            "requestTopic", self._name
-        ] = self._handle_requestTopic
+        if self.is_running():
+            raise exceptions.AlreadySetup(self, self._node_handle)
+
+        if ("topic", self._name) in self._node_handle.tcpros_handlers:
+            self._node_handle.tcpros_handlers[("topic", self._name)].append(
+                self._handle_tcpros_conn
+            )
+        else:
+            self._node_handle.tcpros_handlers[("topic", self._name)] = [
+                self._handle_tcpros_conn
+            ]
+
+        if ("requestTopic", self._name) in self._node_handle.xmlrpc_handlers:
+            self._node_handle.xmlrpc_handlers[("requestTopic", self._name)].append(
+                self._handle_requestTopic
+            )
+        else:
+            self._node_handle.xmlrpc_handlers[("requestTopic", self._name)] = [
+                self._handle_requestTopic
+            ]
 
         # Register the publisher with the master ROS node
         await self._node_handle.master_proxy.register_publisher(
@@ -115,6 +137,11 @@ class Publisher(Generic[M]):
     ):
         await self.shutdown()
 
+    async def _close_connections(self):
+        self._shutdown_event.set()
+        while self._connections:
+            await asyncio.sleep(0.1)
+
     async def shutdown(self):
         """
         Shuts the publisher down. All operations scheduled by the publisher are cancelled.
@@ -137,8 +164,18 @@ class Publisher(Generic[M]):
             )
         except Exception:
             traceback.print_exc()
-        del self._node_handle.tcpros_handlers["topic", self._name]
-        del self._node_handle.xmlrpc_handlers["requestTopic", self._name]
+
+        await self._close_connections()
+
+        handlers = self._node_handle.tcpros_handlers[("topic", self._name)]
+        handlers.remove(self._handle_tcpros_conn)
+        if not handlers:
+            del self._node_handle.tcpros_handlers[("topic", self._name)]
+
+        handlers = self._node_handle.xmlrpc_handlers[("requestTopic", self._name)]
+        handlers.remove(self._handle_requestTopic)
+        if not handlers:
+            del self._node_handle.xmlrpc_handlers[("requestTopic", self._name)]
 
         self._node_handle.shutdown_callbacks.discard(self.shutdown)
         self._is_running = False
@@ -187,20 +224,14 @@ class Publisher(Generic[M]):
                 tcpros.send_string(self._last_message_data, writer)
 
             self._connections[writer] = headers["callerid"]
-            try:
-                while True:
-                    print(await tcpros.receive_string(reader))
-            except (asyncio.IncompleteReadError, BrokenPipeError, ConnectionResetError):
-                # These exceptions are likely related to the client exiting, so we
-                # can ignore them
-                pass
-            finally:
-                del self._connections[writer]
+            await self._shutdown_event.wait()
         except (asyncio.IncompleteReadError, BrokenPipeError, ConnectionResetError):
             # Exceptions related to client exiting - ignore
             pass
         finally:
+            del self._connections[writer]
             writer.close()
+            await writer.wait_closed()
 
     def publish(self, msg: M) -> None:
         """
@@ -222,9 +253,9 @@ class Publisher(Generic[M]):
         if not self.is_running():
             raise exceptions.NotSetup(self, self._node_handle)
 
-        x = BytesIO()
-        self.message_type.serialize(msg, x)
-        data = x.getvalue()
+        buff = BytesIO()
+        msg.serialize(buff)
+        data = buff.getvalue()
 
         for conn in self._connections:
             tcpros.send_string(data, conn)

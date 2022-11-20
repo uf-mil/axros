@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import struct
+import traceback
 from typing import TYPE_CHECKING, Iterator
 
 if TYPE_CHECKING:
@@ -55,47 +56,67 @@ async def receive_byte(reader: asyncio.StreamReader) -> bytes:
 
 
 def send_string(string: bytes, writer: asyncio.StreamWriter) -> None:
-    writer.write(struct.pack("<I", len(string)) + string)
+    try:
+        writer.write(struct.pack("<I", len(string)) + string)
+    except RuntimeError:  # Emitted by uvloop when the transport is closed
+        pass
 
 
 def send_byte(byte: bytes, writer: asyncio.StreamWriter) -> None:
-    writer.write(byte)
+    try:
+        writer.write(byte)
+    except RuntimeError:  # Emitted by uvloop when the transport is closed
+        pass
 
 
 async def callback(
-    tcpros_handlers: dict[tuple[str, str], types.TCPROSProtocol],
+    tcpros_handlers: dict[tuple[str, str], list[types.TCPROSProtocol]],
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ):
     try:
-        header = deserialize_dict(await receive_string(reader))
+        try:
+            header = deserialize_dict(await receive_string(reader))
 
-        async def default(
-            header: dict[str, str],
-            reader: asyncio.StreamReader,
-            writer: asyncio.StreamWriter,
-        ):
-            del header  # In the default case, we don't handle header
-            send_string(serialize_dict(dict(error="unhandled connection")), writer)
-            writer.close()
+            async def default(
+                header: dict[str, str],
+                reader: asyncio.StreamReader,
+                writer: asyncio.StreamWriter,
+            ):
+                del header  # In the default case, we don't handle header
+                send_string(serialize_dict(dict(error="unhandled connection")), writer)
+                writer.close()
+                await writer.wait_closed()
 
-        if "service" in header:
-            await tcpros_handlers.get(("service", header["service"]), default)(
-                header, reader, writer
-            )
-        elif "topic" in header:
-            await tcpros_handlers.get(("topic", header["topic"]), default)(
-                header, reader, writer
-            )
-        else:
-            send_string(
-                serialize_dict(dict(error="no topic or service name detected")), writer
-            )
-            writer.close()
-    except (BrokenPipeError, ConnectionResetError):
+            if "service" in header:
+                handlers = tcpros_handlers.get(("service", header["service"]))
+                if not handlers:
+                    await default(header, reader, writer)
+                else:
+                    for handler in handlers:
+                        await handler(header, reader, writer)
+
+            elif "topic" in header:
+                handlers = tcpros_handlers.get(("topic", header["topic"]))
+                if not handlers:
+                    await default(header, reader, writer)
+                else:
+                    for handler in handlers:
+                        await handler(header, reader, writer)
+            else:
+                send_string(
+                    serialize_dict(dict(error="no topic or service name detected")),
+                    writer,
+                )
+                writer.close()
+                await writer.wait_closed()
+        except asyncio.CancelledError:
+            send_string(serialize_dict(dict(error="shutting down...")), writer)
+    except (BrokenPipeError, ConnectionResetError, asyncio.IncompleteReadError):
         # If these exceptions are triggered, the client likely disconnected, and
         # there is no need to fulfill their request
         return
-    except asyncio.CancelledError:
-        send_string(serialize_dict(dict(error="shutting down...")), writer)
-        writer.close()
+    except Exception:
+        traceback.print_exc()
+    writer.close()
+    await writer.wait_closed()
