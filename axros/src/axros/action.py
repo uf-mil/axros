@@ -29,7 +29,7 @@ class GoalManager(Generic[types.Goal, types.Feedback, types.Result]):
     _action_client: ActionClient[types.Goal, types.Feedback, types.Result]
     _goal: types.Goal
     _goal_id: str
-    _feedback_futs: list[asyncio.Future[types.ActionFeedback[types.Feedback]]]
+    _feedback_futs: list[asyncio.Future[types.Feedback]]
 
     def __init__(
         self,
@@ -82,14 +82,14 @@ class GoalManager(Generic[types.Goal, types.Feedback, types.Result]):
     def _status_callback(self, status):
         del status
 
-    def _result_callback(self, status, result: types.ActionResult[types.Result]):
+    def _result_callback(self, status, result: types.Result):
         del status
         self.forget()
 
         if not self._result_fut.done():
             self._result_fut.set_result(result)
 
-    def _feedback_callback(self, status, feedback: types.ActionFeedback):
+    def _feedback_callback(self, status, feedback: types.Feedback):
         del status
 
         old, self._feedback_futs = self._feedback_futs, []
@@ -542,7 +542,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
             feedback_msg.feedback = feedback
         self._feedback_pub.publish(feedback_msg)
 
-    def _publish_status(self, goal=None):
+    def _publish_status(self, goal=None) -> None:
         msg = GoalStatusArray()
         if self.goal:
             msg.status_list.append(self.goal.status_msg())
@@ -632,7 +632,7 @@ class SimpleActionServer(Generic[types.Goal, types.Feedback, types.Result]):
             self._process_goal_callback()
 
 
-class ActionClient(Generic[types.Goal, types.Result, types.Feedback]):
+class ActionClient(Generic[types.Goal, types.Feedback, types.Result]):
     """
     Representation of an action client in axros. This works in conjunction with
     the :class:`~.SimpleActionServer` by sending the servers goals to execute.
@@ -641,7 +641,7 @@ class ActionClient(Generic[types.Goal, types.Result, types.Feedback]):
     """
 
     def __init__(
-        self, node_handle: NodeHandle, name: str, action_type: type[types.Action]
+        self, node_handle: NodeHandle, name: str, action_type: type[types.Action[types.Goal, types.Feedback, types.Result]]
     ):
         """
         Args:
@@ -711,23 +711,23 @@ class ActionClient(Generic[types.Goal, types.Result, types.Feedback]):
     def __str__(self) -> str:
         return f"<axros.ActionClient at 0x{id(self):0x}, name='{self._name}' running={self.is_running()} node_handle={self._node_handle}>"
 
-    def _status_callback(self, msg: GoalStatusArray):
+    def _status_callback(self, msg: GoalStatusArray) -> None:
         for status in msg.status_list:
             if status.goal_id.id in self._goal_managers:
                 manager = self._goal_managers[status.goal_id.id]
                 manager._status_callback(status.status)
 
-    def _result_callback(self, msg):
+    def _result_callback(self, msg: types.ActionResult[types.Result]) -> None:
         if msg.status.goal_id.id in self._goal_managers:
             manager = self._goal_managers[msg.status.goal_id.id]
             manager._result_callback(msg.status.status, msg.result)
 
-    def _feedback_callback(self, msg):
+    def _feedback_callback(self, msg: types.ActionFeedback[types.Feedback]):
         if msg.status.goal_id.id in self._goal_managers:
             manager = self._goal_managers[msg.status.goal_id.id]
             manager._feedback_callback(msg.status.status, msg.feedback)
 
-    def send_goal(self, goal: types.Goal) -> GoalManager:
+    def send_goal(self, goal: types.Goal) -> GoalManager[types.Goal, types.Feedback, types.Result]:
         """
         Sends a goal to a goal manager. The goal manager is responsible for the
         communication between the action client and server; it assists in this process
