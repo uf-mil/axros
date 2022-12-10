@@ -31,11 +31,11 @@ TCPROSProtocol = Callable[
 
 @runtime_checkable
 class Message(Protocol):
-    _md5sum: ClassVar[str]
-    _type: ClassVar[str]
-    _has_header: ClassVar[bool]
-    _full_text: ClassVar[str]
-    _slot_types: ClassVar[list[str]]
+    _md5sum: str
+    _type: str
+    _has_header: bool
+    _full_text: str
+    _slot_types: list[str]
 
     @abstractmethod
     def _get_types(self) -> list[str]:
@@ -71,19 +71,22 @@ Feedback = TypeVar("Feedback", bound=Message)
 Result = TypeVar("Result", bound=Message)
 
 
+class HasGoal(Protocol[Goal]):
+    goal: Goal
+
+
 @runtime_checkable
-class ActionGoal(MessageWithHeader, Protocol[Goal], metaclass=ABCMeta):
+class ActionGoal(HasGoal[Goal], MessageWithHeader, Protocol, metaclass=ABCMeta):
     goal_id: GoalID
     goal: Goal
 
     def __init__(
         self,
-        header: Header | None = None,
-        goal_id: GoalID | None = None,
-        goal: Goal | None = None,
+        header: Optional[Header] = None,
+        goal_id: Optional[GoalID] = None,
+        goal: Optional[Goal] = None,
     ) -> None:
         ...
-
 
 class HasResult(Protocol[Result]):
     result: Result
@@ -107,6 +110,14 @@ class ActionFeedback(
 
 @runtime_checkable
 class Action(Protocol[Goal, Feedback, Result]):
-    action_goal: ActionGoal[Goal]
-    action_result: ActionResult[Result]
-    action_feedback: ActionFeedback[Feedback]
+    @property
+    def action_goal(self) -> ActionGoal[Goal]:
+        ...
+
+    @property
+    def action_feedback(self) -> ActionFeedback[Feedback]:
+        ...
+
+    @property
+    def action_result(self) -> ActionResult[Result]:
+        ...
