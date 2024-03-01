@@ -934,3 +934,20 @@ class NodeHandle:
             raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.getParamNames()
+
+
+    async def lookup_node(self, name: str) -> str | None:
+        """
+        Looks up the URI of a node based on its name. If it does not exist,
+        `None` is returned.
+
+        Args:
+            name (str): The name of the node to lookup.
+
+        Returns:
+            Optional[str]: The URI of the node, if it exists.
+        """
+        try:
+            return await self.master_proxy.lookupNode(name)
+        except rosxmlrpc.ROSMasterError:
+            return None
