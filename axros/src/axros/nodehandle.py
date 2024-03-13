@@ -10,7 +10,7 @@ import time
 import traceback
 import warnings
 from types import TracebackType
-from typing import Any, Awaitable, Callable, Coroutine, TypeVar
+from typing import Any, Awaitable, Callable, Coroutine, TypeVar, overload
 
 import aiohttp
 import genpy
@@ -43,6 +43,7 @@ M = TypeVar("M", bound=types.Message)
 Request = TypeVar("Request", bound=types.Message)
 Reply = TypeVar("Reply", bound=types.Message)
 S = TypeVar("S", bound=types.ServiceMessage)
+X = TypeVar("X", bound=rosxmlrpc.XMLRPCLegalType)
 
 
 class _XMLRPCSlave(xmlrpc_handler.XMLRPCView):
@@ -782,7 +783,19 @@ class NodeHandle:
 
         return publisher.Publisher(self, name, message_type, latching)
 
-    async def get_param(self, key: str) -> rosxmlrpc.XMLRPCLegalType:
+    @overload
+    async def get_param(self, key: str, desired_type: type[X]) -> X:
+        ...
+
+    @overload
+    async def get_param(
+        self, key: str, desired_type: None = ...
+    ) -> rosxmlrpc.XMLRPCLegalType:
+        ...
+
+    async def get_param(
+        self, key: str, desired_type: type[X] | None = None
+    ) -> rosxmlrpc.XMLRPCLegalType:
         """
         Gets a parameter value from the ROS parameter server. If the key requested
         is a namespace, then a dictionary representing all keys below the given
@@ -808,7 +821,12 @@ class NodeHandle:
                 f"The '{key}' key used to get an item from the parameter server must be a string, not {key.__class__.__name__}"
             )
 
-        return await self.master_proxy.getParam(key)
+        res = await self.master_proxy.getParam(key)
+        if desired_type and not isinstance(res, desired_type):
+            raise TypeError(
+                f"The parameter '{key}' has type {res.__class__.__name__}, not {desired_type.__name__}.",
+            )
+        return res
 
     async def has_param(self, key: str) -> bool:
         """
@@ -934,7 +952,6 @@ class NodeHandle:
             raise exceptions.NotSetup(self, self)
 
         return await self.master_proxy.getParamNames()
-
 
     async def lookup_node(self, name: str) -> str | None:
         """
