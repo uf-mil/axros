@@ -38,9 +38,9 @@ class GoalManager(Generic[types.Goal, types.Feedback, types.Result]):
     ):
         """
         Args:
-            action_client (ActionClient): The txROS action client to use to manage
+            action_client (ActionClient): The axros action client to use to manage
                 the goal.
-            goal (Goal): The txROS goal to manage.
+            goal (Goal): The axros goal to manage.
         """
         self._action_client = action_client
         self._goal = goal

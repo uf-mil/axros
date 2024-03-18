@@ -19,7 +19,7 @@ M = TypeVar("M", bound=types.Message)
 
 class Subscriber(Generic[M]):
     """
-    A subscriber in the txROS suite. This class should usually be made through
+    A subscriber in the axros suite. This class should usually be made through
     :meth:`axros.NodeHandle.subscribe`.
 
     .. container:: operations

@@ -249,7 +249,7 @@ class ROSMasterFailure(AxrosException):
 
 class ROSMasterProxy:
     """
-    The txROS proxy to the ROS master server. This class does not provide a general
+    The axros proxy to the ROS master server. This class does not provide a general
     suite of discrete methods for contracting with the master server, rather all
     method requests are forwarded to the server through the class' ``__getattr__``
     method.
