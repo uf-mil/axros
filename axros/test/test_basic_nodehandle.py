@@ -144,6 +144,16 @@ class BasicNodeHandleTest(unittest.IsolatedAsyncioTestCase):
             await self.nh.get_param("test_param_two")
         self.assertFalse(await self.nh.has_param("test_param_two"))
 
+    async def test_param_type(self):
+        await self.nh.set_param("test_param_type", "test_value")
+        self.assertEqual(await self.nh.get_param("test_param_type"), "test_value")
+        with self.assertRaises(TypeError):
+            await self.nh.get_param("test_param_type", int)
+            await self.nh.get_param("test_param_type", bool)
+        self.assertEqual(await self.nh.get_param("test_param_type", str), "test_value")
+        await self.nh.delete_param("test_param_type")
+        self.assertFalse(await self.nh.has_param("test_param_type"))
+
     async def test_delete_again(self):
         await self.nh.set_param("delete_me", 1)
         await self.nh.delete_param("delete_me")
