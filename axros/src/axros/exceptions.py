@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 class AxrosException(Exception):
     """
-    Exception related to txROS. Inherits from :class:`Exception`.
+    Exception related to axros. Inherits from :class:`Exception`.
 
     Attributes:
         node_handle (axros.NodeHandle): The node handle which caused the exception.

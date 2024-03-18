@@ -47,7 +47,7 @@ def _rotvec_from_quat(q):
 
 class Transform:
     """
-    Represents a tf transform in the txROS suite.
+    Represents a tf transform in the axros suite.
 
     .. container:: operations
 

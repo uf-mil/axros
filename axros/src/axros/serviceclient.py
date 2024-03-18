@@ -23,7 +23,7 @@ class ServiceType(Protocol):
 
 class ServiceError(Exception):
     """
-    Represents an error with a service client in txROS.
+    Represents an error with a service client in axros.
 
     Inherits from :class:`Exception`.
 
@@ -50,7 +50,7 @@ class ServiceError(Exception):
 
 class ServiceClient(Generic[S]):
     """
-    A client connected to a service in txROS. This is the client class of the
+    A client connected to a service in axros. This is the client class of the
     client-server relationship in ROS; the server is the :class:`axros.Service`
     class.
 

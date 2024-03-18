@@ -17,7 +17,7 @@ M = TypeVar("M", bound=types.Message)
 
 class Publisher(Generic[M]):
     """
-    A Publisher in the txROS suite. Allows for the publishing of messages onto a
+    A Publisher in the axros suite. Allows for the publishing of messages onto a
     certain ROS topic. This class should usually be made through :meth:`axros.NodeHandle.advertise`.
 
     Before use, the publisher must be :meth:`~.setup` and after use, it must be

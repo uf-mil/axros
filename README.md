@@ -24,3 +24,5 @@ _A simplistic Python library for using [`asyncio`](https://docs.python.org/3/lib
 ```
 
 Documentation: https://uf-mil.github.io/docs/reference/axros/index.html
+
+Authors: Forrest Voight (`txROS`), Cameron Brown (`axros`)

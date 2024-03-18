@@ -18,7 +18,7 @@ Reply = TypeVar("Reply", bound=types.Message)
 
 class Service(Generic[Request, Reply]):
     """
-    A service in the txROS suite. Handles incoming requests through a user-supplied
+    A service in the axros suite. Handles incoming requests through a user-supplied
     asynchronous callback function, which is expected to return a response message.
 
     This class completes the server aspect of the server-client relationship in
