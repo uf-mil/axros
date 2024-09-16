@@ -123,7 +123,7 @@ class Publisher(Generic[M]):
         if self._is_running:
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
-                f"The '{self._name}' publisher was never shutdown(). This may cause issues with this instance of ROS - please fix the errors and completely restart ROS.",
+                f"The '{self._name}' publisher (in '{self._node_handle.get_name()}') was never shutdown(). This may cause issues with this instance of ROS - please fix the errors and completely restart ROS.",
                 ResourceWarning,
             )
             warnings.simplefilter("default", ResourceWarning)
@@ -152,7 +152,7 @@ class Publisher(Generic[M]):
         if not self._is_running:
             warnings.simplefilter("always", ResourceWarning)
             warnings.warn(
-                f"The {self._name} subscriber is not currently running. It may have been shutdown previously or never started.",
+                f"The {self._name} subscriber (in '{self._node_handle.get_name()}') is not currently running. It may have been shutdown previously or never started.",
                 ResourceWarning,
             )
             warnings.simplefilter("default", ResourceWarning)
