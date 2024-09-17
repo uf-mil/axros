@@ -404,7 +404,7 @@ class NodeHandle:
         self._addr = self._addr
         self._is_setting_up = True
 
-        self._aiohttp_session = aiohttp.ClientSession()
+        self._aiohttp_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
         self.master_proxy = rosxmlrpc.ROSMasterProxy(
             rosxmlrpc.AsyncServerProxy(self.master_uri, self),
             self._name,

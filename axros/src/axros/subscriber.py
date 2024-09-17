@@ -341,8 +341,9 @@ class Subscriber(Generic[M]):
             ):
                 pass
             except rosxmlrpc.XMLRPCException:
-                print(f"Error connecting on subscriber '/{self._name}' to '{url}', assuming publisher has died. Closing connection...")
-                self._publisher_threads.pop(url)
+                print(f"Error connecting on subscriber '{self._name}' to '{url}', assuming publisher has died. Closing connection...")
+                if url in self._publisher_threads:
+                    self._publisher_threads.pop(url)
             except Exception:
                 traceback.print_exc()
 
