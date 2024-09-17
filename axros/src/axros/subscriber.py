@@ -340,6 +340,9 @@ class Subscriber(Generic[M]):
                 asyncio.IncompleteReadError,
             ):
                 pass
+            except rosxmlrpc.XMLRPCException:
+                print(f"Error connecting on subscriber '/{self._name}' to '{url}', assuming publisher has died. Closing connection...")
+                self._publisher_threads.pop(url)
             except Exception:
                 traceback.print_exc()
 
