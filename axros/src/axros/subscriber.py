@@ -344,12 +344,11 @@ class Subscriber(Generic[M]):
                 print(f"Error connecting on subscriber '{self._name}' to '{url}', assuming publisher has died. Closing connection...")
                 if url in self._publisher_threads:
                     self._publisher_threads.pop(url)
-                await asyncio.sleep(10)
             except Exception:
                 traceback.print_exc()
 
             await util.wall_sleep(
-                1
+                10
             )  # pause so that we don't repeatedly reconnect immediately on failure
 
     def _handle_publisher_list(self, publishers: list[str]) -> tuple[int, str, bool]:
