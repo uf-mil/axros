@@ -264,6 +264,7 @@ class Subscriber(Generic[M]):
 
     async def _publisher_thread(self, url: str) -> None:
         while True:
+            restart_delay = 1
             try:
                 proxy = rosxmlrpc.ROSMasterProxy(
                     rosxmlrpc.AsyncServerProxy(url, self._node_handle),
@@ -344,12 +345,11 @@ class Subscriber(Generic[M]):
                 print(f"Error connecting on subscriber '{self._name}' to '{url}', assuming publisher has died. Closing connection...")
                 if url in self._publisher_threads:
                     self._publisher_threads.pop(url)
+                restart_delay = 10
             except Exception:
                 traceback.print_exc()
-
-            await util.wall_sleep(
-                1
-            )  # pause so that we don't repeatedly reconnect immediately on failure
+            # pause so that we don't repeatedly reconnect immediately on failure
+            await util.wall_sleep(restart_delay)
 
     def _handle_publisher_list(self, publishers: list[str]) -> tuple[int, str, bool]:
         new = {
